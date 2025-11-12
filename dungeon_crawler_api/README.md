@@ -144,6 +144,7 @@ curl http://localhost:5000/api/scores/highscores
 - Players can move **north**, **south**, **east**, **west** between connected rooms
 - Use **up** to climb staircases to the next floor
 - Each room has 1-3 random connections to other rooms
+- **Bidirectional movement** - players can backtrack to rooms they came from
 - Moving to new rooms awards small amounts of exploration gold
 
 ### Combat
@@ -238,6 +239,24 @@ def generate_enemy_content(self, floor: int, room: Optional[Room] = None) -> Dic
 - **Stateless design** - all game state stored in database
 - **Controller pattern** - business logic separated from routes
 - **Modular structure** - easy to add new features or swap components
+
+## Recent Fixes
+
+### Fixed: Room ID Exponential Growth
+- **Issue**: Room IDs were growing exponentially (e.g., `floor_1_floor_1_floor_1_start_south_south`)
+- **Solution**: Changed room generation to use simple random IDs instead of concatenating previous room IDs
+- **Result**: Clean, concise room IDs like `floor_1_room_abc123`
+
+### Fixed: No Backtracking
+- **Issue**: Players couldn't return to rooms they came from
+- **Solution**: Implemented bidirectional room connections when moving between rooms
+- **Result**: Players can now backtrack naturally through the dungeon
+
+### Testing the Fixes
+Run the demonstration script to see both fixes in action:
+```bash
+python test_backtracking.py
+```
 
 ## Contributing
 

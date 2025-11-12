@@ -54,19 +54,27 @@ class MovementController:
         if not next_room_id:
             return False, create_error_response(f"You cannot go {direction} from here.")
         
+        # Store current room ID before moving
+        old_room_id = player.room_id
+        
         # Get or create the next room
         next_room = self.get_room(next_room_id, player.floor)
         if not next_room:
             next_room = self._generate_room(next_room_id, player.floor)
             self._save_room(next_room)
         
+        # Ensure bidirectional connection exists for backtracking
+        self._ensure_bidirectional_connection(current_room, next_room, normalized_direction, old_room_id, next_room_id)
+        
         # Move player to the new room
-        old_room_id = player.room_id
         player.move_to_room(next_room_id)
         
         # Mark room as visited
         next_room.visit()
         self._save_room(next_room)
+        
+        # Save the current room as well (in case connections were updated)
+        self._save_room(current_room)
         
         # Prepare response
         response_data = {
@@ -232,8 +240,9 @@ class MovementController:
         selected_directions = random.sample(directions, num_connections)
         
         for direction in selected_directions:
-            # Generate room ID for this direction
-            connected_room_id = generate_room_id(room.floor, f"{room.room_id}_{direction}")
+            # Generate room ID for this direction using just a simple random ID
+            # This prevents the exponential growth of room IDs
+            connected_room_id = generate_room_id(room.floor)
             room.add_connection(direction, connected_room_id)
     
     def get_available_moves(self, player: Player) -> Dict[str, Any]:
@@ -277,3 +286,42 @@ class MovementController:
             self._save_room(start_room)
         
         return start_room
+    
+    def _get_opposite_direction(self, direction: str) -> str:
+        """
+        Get the opposite direction for bidirectional connections.
+        
+        Args:
+            direction (str): Original direction
+            
+        Returns:
+            str: Opposite direction
+        """
+        opposite_map = {
+            'north': 'south',
+            'south': 'north',
+            'east': 'west',
+            'west': 'east'
+        }
+        return opposite_map.get(direction, direction)
+    
+    def _ensure_bidirectional_connection(self, current_room: Room, next_room: Room, 
+                                       direction: str, current_room_id: str, next_room_id: str):
+        """
+        Ensure that both rooms have connections to each other for backtracking.
+        
+        Args:
+            current_room (Room): The room the player is leaving
+            next_room (Room): The room the player is entering
+            direction (str): Direction of movement
+            current_room_id (str): ID of the current room
+            next_room_id (str): ID of the next room
+        """
+        opposite_direction = self._get_opposite_direction(direction)
+        
+        # Check if the next room already has a connection back to the current room
+        existing_connection = next_room.get_connection(opposite_direction)
+        
+        if not existing_connection:
+            # Add the reverse connection
+            next_room.add_connection(opposite_direction, current_room_id)
