@@ -106,11 +106,13 @@ class CombatController:
         battle_description = self._generate_ai_battle_description(player, enemy, room)
         
         return create_success_response({
+            "battle_started": True,
             "message": "Battle started!",
             "description": battle_description,
             "player_health": player.health,
             "enemy_health": enemy.health,
             "enemy_name": enemy.name,
+            "enemy": enemy.to_dict(),
             "ally_available": ally_data is not None,
             "ally_name": ally_data.get('name') if ally_data else None
         }, "Battle initiated")
@@ -144,16 +146,32 @@ class CombatController:
         # Check if enemy is defeated
         if not enemy.is_alive():
             reward = self._handle_enemy_defeat(player, enemy)
+            
+            # Get room information before ending battle
+            room_data = player.battle_room
+            room = Room.from_dict(room_data) if room_data else None
+            
             player.end_battle()
             
-            return create_success_response({
+            # Include room directions in victory response
+            response_data = {
                 "battle_log": battle_log,
                 "battle_ended": True,
                 "victory": True,
                 "reward": reward,
                 "player_health": player.health,
                 "enemy_health": enemy.health
-            }, "Enemy defeated!")
+            }
+            
+            # Add room direction info after victory
+            if room:
+                response_data["room_info"] = {
+                    "current_room": room.get_room_info(),
+                    "available_directions": room.get_available_directions(),
+                    "message": "Victory! You can now explore the room or move to adjacent areas."
+                }
+            
+            return create_success_response(response_data, "Enemy defeated!")
         
         # Enemy counterattack
         self._execute_enemy_attack(player, enemy, battle_log)
@@ -193,48 +211,114 @@ class CombatController:
         """
         if not player.in_battle:
             return create_error_response("Player is not in battle!")
-
-        # Apply flat 10 damage (ignores defense) as flee penalty
-        player.health = max(0, player.health - 10)
-        player.end_battle()
-
-        return create_success_response({
-            "message": "You fled from battle, taking 10 damage but remaining in the room.",
-            "player_health": player.health,
-            "battle_ended": True,
-            "flee_damage": 10
-        }, "Fled from battle")
+        
+        # Get room information before fleeing
+        room_data = player.battle_room
+        room = Room.from_dict(room_data) if room_data else None
+        
+        gold_lost = player.flee_battle()
+        
+        response_data = {
+            "message": f"You fled from battle and lost {gold_lost} gold!",
+            "gold_lost": gold_lost,
+            "current_gold": player.gold,
+            "battle_ended": True
+        }
+        
+        # Add room direction info after fleeing
+        if room:
+            response_data["room_info"] = {
+                "current_room": room.get_room_info(),
+                "available_directions": room.get_available_directions(),
+                "message": "You escaped! You can now explore the room or move to safety."
+            }
+        
+        return create_success_response(response_data, "Fled from battle")
     
     def _generate_ai_battle_description(self, player: Player, enemy: Enemy, room: Room) -> str:
         """
-        Generate AI-powered battle description.
-        
-        Args:
-            player (Player): Player object
-            enemy (Enemy): Enemy object
-            room (Room): Room object
-            
-        Returns:
-            str: Battle description
+        Generate AI-powered battle description with a 15-second timeout and robust fallback.
         """
-        if self.openai_client:
-            try:
-                prompt = f"""You are a fantasy narrator with charm and wit. Describe the start of a battle in 2 sentences maximum.
+        prompt = f"""You are a fantasy narrator with charm and wit. Describe the start of a battle in 2 sentences maximum.
 
 Player: {player.name} (Health: {player.health}, Attack: {player.attack_power}, Defense: {player.defense})
 Enemy: {enemy.name} - {enemy.description}
 Location: {room.name} - {room.description}
 
 Write a brief, atmospheric description of the encounter starting. Make it feel like a classic fantasy adventure with a touch of personality."""
+        if self.openai_client:
+            import concurrent.futures
+            import logging
+            logging.info("[Combat] Requesting OpenAI battle description...")
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(self.openai_client.generate_completion, prompt, "gpt-3.5-turbo", 80, 0.8)
+                    description = future.result(timeout=15)
+                if description:
+                    logging.info("[Combat] OpenAI battle description received.")
+                    return description
+                else:
+                    logging.warning("[Combat] OpenAI returned no description, using fallback.")
+            except Exception as e:
+                logging.error(f"[Combat] OpenAI battle description failed or timed out: {e}")
+        else:
+            import logging
+            logging.info("[Combat] OpenAI client not available, using fallback description.")
+        # Fallback description
+        return f"{player.name} faces {enemy.name} in the {room.name}. The battle is about to begin!"
+    
+    def _generate_critical_hit_description(self, attacker_name: str, target_name: str, 
+                                         damage: int, is_player: bool = True) -> str:
+        """
+        Generate AI-powered critical hit description.
+        
+        Args:
+            attacker_name (str): Name of the attacker
+            target_name (str): Name of the target
+            damage (int): Damage dealt
+            is_player (bool): Whether attacker is player
+            
+        Returns:
+            str: Critical hit description
+        """
+        if self.openai_client:
+            try:
+                attacker_type = "heroic adventurer" if is_player else "fearsome creature"
+                prompt = f"""You are a fantasy combat narrator. A {attacker_type} named {attacker_name} just scored a critical hit against {target_name}, dealing {damage} damage.
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=80, temperature=0.8)
+Write a brief, exciting description (1-2 sentences) explaining WHY this was a critical hit. Focus on skill, luck, or a perfect strike. Make it feel epic and satisfying.
+
+Examples:
+- "A perfect strike finds the gap in armor!"
+- "Lightning-fast reflexes catch the enemy off-guard!"
+- "A surge of adrenaline guides the blade true!"
+
+Keep it short and punchy."""
+
+                description = self.openai_client.generate_completion(prompt, max_tokens=50, temperature=0.9)
                 if description:
                     return description
             except Exception as e:
-                print(f"OpenAI battle description failed: {e}")
+                print(f"OpenAI critical hit description failed: {e}")
         
-        # Fallback description
-        return f"{player.name} faces {enemy.name} in the {room.name}. The battle is about to begin!"
+        # Fallback critical hit descriptions
+        fallbacks = [
+            "A perfect strike finds its mark!",
+            "Lightning reflexes guide the attack!",
+            "A surge of power flows through the strike!",
+            "The attack lands with devastating precision!",
+            "Fortune favors the bold in this moment!"
+        ]
+        return random.choice(fallbacks)
+    
+    def _check_critical_hit(self) -> bool:
+        """
+        Check if an attack is a critical hit (10% chance).
+        
+        Returns:
+            bool: True if critical hit
+        """
+        return random.random() < 0.10  # 10% critical hit chance
     
     def _execute_ally_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
@@ -253,16 +337,30 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         ally_bonus = ally_data.get('attack_power', 15)  # Allies give bonus damage
         total_damage = base_damage + ally_bonus
         
+        # Check for critical hit
+        is_critical = self._check_critical_hit()
+        if is_critical:
+            total_damage = int(total_damage * 1.5)  # 50% bonus for critical
+        
         # Add some variance
         damage = calculate_damage_with_variance(total_damage)
         enemy.take_damage(damage)
+        
+        # Generate description
+        base_description = f"{ally_data['name']} unleashes their special move, dealing {damage} damage!"
+        if is_critical:
+            crit_desc = self._generate_critical_hit_description(ally_data['name'], enemy.name, damage, True)
+            description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
+        else:
+            description = base_description
         
         battle_log.append({
             "type": "ally_attack",
             "attacker": f"{player.name} with {ally_data['name']}",
             "target": enemy.name,
             "damage": damage,
-            "description": f"{ally_data['name']} unleashes their special move, dealing {damage} damage!"
+            "is_critical": is_critical,
+            "description": description
         })
         
         return damage
@@ -279,15 +377,31 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         Returns:
             int: Damage dealt
         """
-        damage = calculate_damage_with_variance(player.attack_power)
+        # Check for critical hit
+        is_critical = self._check_critical_hit()
+        base_damage = player.attack_power
+        
+        if is_critical:
+            base_damage = int(base_damage * 1.5)  # 50% bonus for critical
+        
+        damage = calculate_damage_with_variance(base_damage)
         enemy.take_damage(damage)
+        
+        # Generate description
+        base_description = f"{player.name} attacks {enemy.name} for {damage} damage!"
+        if is_critical:
+            crit_desc = self._generate_critical_hit_description(player.name, enemy.name, damage, True)
+            description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
+        else:
+            description = base_description
         
         battle_log.append({
             "type": "player_attack",
             "attacker": player.name,
             "target": enemy.name,
             "damage": damage,
-            "description": f"{player.name} attacks {enemy.name} for {damage} damage!"
+            "is_critical": is_critical,
+            "description": description
         })
         
         return damage
@@ -304,15 +418,31 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         Returns:
             int: Damage dealt
         """
-        damage = calculate_damage_with_variance(enemy.attack_power)
+        # Check for critical hit
+        is_critical = self._check_critical_hit()
+        base_damage = enemy.attack_power
+        
+        if is_critical:
+            base_damage = int(base_damage * 1.5)  # 50% bonus for critical
+        
+        damage = calculate_damage_with_variance(base_damage)
         player.take_damage(damage)
+        
+        # Generate description
+        base_description = f"{enemy.name} attacks {player.name} for {damage} damage!"
+        if is_critical:
+            crit_desc = self._generate_critical_hit_description(enemy.name, player.name, damage, False)
+            description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
+        else:
+            description = base_description
         
         battle_log.append({
             "type": "enemy_attack",
             "attacker": enemy.name,
             "target": player.name,
             "damage": damage,
-            "description": f"{enemy.name} attacks {player.name} for {damage} damage!"
+            "is_critical": is_critical,
+            "description": description
         })
         
         return damage
@@ -491,9 +621,13 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         Returns:
             Dict[str, Any]: Victory result information
         """
-        # Award gold
+        # Award gold and experience
         gold_reward = enemy.get_gold_reward()
+        exp_reward = enemy.exp_reward
         player.add_gold(gold_reward)
+        
+        # Award experience and check for level up
+        leveled_up = player.gain_experience(exp_reward)
         
         # Small chance of finding a healing item (20%)
         healing_found = 0
@@ -501,15 +635,24 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
             healing_found = random.randint(10, 25)
             player.heal(healing_found)
         
+        message = f"Victory! You defeated {enemy.name} and earned {gold_reward} gold and {exp_reward} experience."
+        if leveled_up:
+            message += f" **LEVEL UP!** You are now level {player.level}!"
+        if healing_found > 0:
+            message += f" You also found healing herbs and restored {healing_found} health!"
+        
         return {
             "outcome": "victory",
             "gold_earned": gold_reward,
+            "exp_earned": exp_reward,
+            "leveled_up": leveled_up,
+            "new_level": player.level if leveled_up else None,
             "total_gold": player.gold,
             "healing_found": healing_found,
             "current_health": player.health,
             "max_health": player.max_health,
-            "message": f"Victory! You defeated {enemy.name} and earned {gold_reward} gold." +
-                      (f" You also found healing herbs and restored {healing_found} health!" if healing_found > 0 else "")
+            "level_progress": player.get_current_level_progress(),
+            "message": message
         }
     
     def _generate_combat_description(self, player: Player, enemy: Enemy, room: Room) -> str:
