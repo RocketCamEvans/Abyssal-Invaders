@@ -287,8 +287,11 @@ function updateInventoryDisplay() {
             'legendary': '🟡'
         };
         
+        // Create detailed tooltip text
+        const tooltipText = `${item.description || item.name}\n\nEffect: ${item.effect_type || 'unknown'}\nValue: ${item.effect_value || 0}\nRarity: ${item.rarity || 'common'}${item.usable_in_combat ? '\n✓ Can use in combat' : '\n✗ Cannot use in combat'}`;
+        
         return `
-            <div class="item-entry" title="${item.description || item.name}">
+            <div class="item-entry" data-tooltip="${tooltipText}" title="${item.description || item.name}">
                 <span class="item-icon">${rarityEmoji[item.rarity] || '⚪'}</span>
                 <span class="item-name">${item.name}</span>
             </div>
@@ -316,17 +319,17 @@ function showItemModal() {
         };
         
         return `
-            <div class="item-card" data-item-id="${item.id}">
+            <div class="item-card" data-item-id="${item.item_id}">
                 <div class="item-header">
                     <span class="item-icon">${rarityEmoji[item.rarity] || '⚪'}</span>
                     <span class="item-title">${item.name}</span>
                 </div>
                 <div class="item-description">${item.description || 'A useful item'}</div>
                 <div class="item-stats">
-                    <span class="item-type">${item.type}</span>
-                    <span class="item-value">Value: ${item.value || 0}</span>
+                    <span class="item-type">${item.effect_type || 'unknown'}</span>
+                    <span class="item-value">Effect: ${item.effect_value || 0}</span>
                 </div>
-                <button class="btn btn-primary btn-use-item" data-item-id="${item.id}">Use Item</button>
+                <button class="btn btn-primary btn-use-item" data-item-id="${item.item_id}">Use Item</button>
             </div>
         `;
     }).join('');
@@ -358,31 +361,29 @@ async function useItem(itemId) {
     
     // Update player stats from response
     if (result.data) {
-        addLogEntry(result.data.message || 'Item used successfully!', 'success');
+        const useResult = result.data.use_result || {};
+        addLogEntry(useResult.message || result.message || 'Item used successfully!', 'success');
         
-        // Update player HP/stats if returned
-        if (result.data.player_hp !== undefined) {
-            const maxHp = parseInt(gameState.player.health.split('/')[1]);
-            gameState.player.health = `${result.data.player_hp}/${maxHp}`;
-        }
-        if (result.data.player_attack !== undefined) {
-            gameState.player.attack_power = result.data.player_attack;
-        }
-        if (result.data.player_defense !== undefined) {
-            gameState.player.defense = result.data.player_defense;
+        // Update player stats from player_stats in response
+        if (result.data.player_stats) {
+            gameState.player.health = result.data.player_stats.health;
+            gameState.player.attack_power = result.data.player_stats.attack_power;
+            gameState.player.defense = result.data.player_stats.defense;
+            gameState.player.gold = result.data.player_stats.gold;
         }
         
         // Remove item from local inventory
         if (gameState.player.inventory) {
-            gameState.player.inventory = gameState.player.inventory.filter(item => item.id !== itemId);
+            gameState.player.inventory = gameState.player.inventory.filter(item => item.item_id !== itemId);
         }
         
         updatePlayerDisplay();
         updateInventoryDisplay();
         
         // If enemy was affected, update enemy display
-        if (result.data.enemy_hp !== undefined && gameState.currentEnemy) {
-            gameState.currentEnemy.health = result.data.enemy_hp;
+        if (result.data.enemy_stats && gameState.currentEnemy) {
+            gameState.currentEnemy.health = result.data.enemy_stats.health.split('/')[0];
+            gameState.currentEnemy.max_health = result.data.enemy_stats.health.split('/')[1];
             showCombatArea();
         }
     }
