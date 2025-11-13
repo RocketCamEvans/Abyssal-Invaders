@@ -433,7 +433,9 @@ async function performCombatAction(action, useAlly = false) {
         // Add combat messages to log
         if (combatData.messages) {
             combatData.messages.forEach(msg => {
-                addLogEntry(msg, 'important');
+                // Check if message is an object with a description field
+                const messageText = typeof msg === 'object' && msg.description ? msg.description : msg;
+                addLogEntry(messageText, 'important');
             });
         }
         

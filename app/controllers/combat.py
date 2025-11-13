@@ -158,8 +158,8 @@ class CombatController:
                 "messages": battle_log,
                 "battle_ended": True,
                 "victory": True,
-                "gold_reward": reward.get('gold', 0),
-                "exp_reward": reward.get('experience', 0),
+                "gold_reward": reward.get('gold_earned', 0),
+                "exp_reward": reward.get('exp_earned', 0),
                 "player": {
                     "health": f"{player.health}/{player.max_health}",
                     "gold": player.gold,
