@@ -16,25 +16,28 @@ class Enemy:
         self.description = description or "A mysterious creature lurks in the shadows."
         self.floor = floor
         
-        # Scale stats based on floor level
-        base_health = 30 + (floor * 10)
-        base_attack = 8 + (floor * 2)
-        base_defense = 2 + floor
-        base_gold = 10 + (floor * 5)
+        # Scale stats based on floor level (reduced for better balance)
+        base_health = 20 + (floor * 6)  # Reduced from 30 + floor * 10
+        base_attack = 5 + (floor * 1.5)  # Reduced from 8 + floor * 2
+        base_defense = 1 + (floor * 0.5)  # Reduced from 2 + floor
+        base_gold = 15 + (floor * 8)  # Increased gold reward
+        base_exp = 25 + (floor * 10)  # Experience reward
         
         # Add some randomness to stats
-        self.max_health = base_health + random.randint(-5, 10)
+        self.max_health = int(base_health + random.randint(-3, 5))
         self.health = self.max_health
-        self.attack_power = base_attack + random.randint(-2, 4)
-        self.defense = base_defense + random.randint(0, 2)
-        self.gold_reward = base_gold + random.randint(0, floor * 3)
+        self.attack_power = int(base_attack + random.randint(-1, 3))
+        self.defense = int(base_defense + random.randint(0, 1))
+        self.gold_reward = base_gold + random.randint(0, floor * 2)
+        self.exp_reward = base_exp + random.randint(0, floor * 5)
         
         # Ensure minimum values
-        self.max_health = max(20, self.max_health)
+        self.max_health = max(15, self.max_health)
         self.health = self.max_health
-        self.attack_power = max(5, self.attack_power)
+        self.attack_power = max(3, self.attack_power)
         self.defense = max(0, self.defense)
-        self.gold_reward = max(5, self.gold_reward)
+        self.gold_reward = max(10, self.gold_reward)
+        self.exp_reward = max(20, self.exp_reward)
     
     def take_damage(self, damage: int) -> bool:
         """
@@ -95,7 +98,8 @@ class Enemy:
             "max_health": self.max_health,
             "attack_power": self.attack_power,
             "defense": self.defense,
-            "gold_reward": self.gold_reward
+            "gold_reward": self.gold_reward,
+            "exp_reward": self.exp_reward
         }
     
     @classmethod
@@ -119,6 +123,7 @@ class Enemy:
         enemy.attack_power = data["attack_power"]
         enemy.defense = data["defense"]
         enemy.gold_reward = data["gold_reward"]
+        enemy.exp_reward = data.get("exp_reward", 25 + (data["floor"] * 10))  # Backward compatibility
         return enemy
     
     @classmethod

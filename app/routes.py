@@ -44,10 +44,16 @@ def create_player():
         "name": "Player Name" (optional)
     }
     """
+
     try:
-        data = request.get_json() or {}
-        player_name = sanitize_input(data.get('name', 'Unknown Adventurer'))
-        
+        from pydantic import ValidationError
+        from app.models.request_models import PlayerCreateRequest
+        try:
+            req = PlayerCreateRequest.parse_obj(request.get_json() or {})
+        except ValidationError as ve:
+            return create_error_response(f"Invalid input: {ve.errors()}", ve.json()), 400
+        player_name = sanitize_input(req.name)
+
         # Create new player
         player = Player(name=player_name)
         
@@ -91,11 +97,9 @@ def get_player_status():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
-            return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        session_id = req.session_id
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
         
@@ -133,6 +137,64 @@ def get_player_status():
         return create_error_response(f"Error retrieving player status: {str(e)}"), 500
 
 
+@bp.route('/player/look', methods=['POST'])
+def look_around():
+    """
+    Inspect current room for available directions and details.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Get current room
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        # Get detailed room information
+        response_data = {
+            'room': {
+                'room_id': current_room.room_id,
+                'name': current_room.name,
+                'description': current_room.description,
+                'floor': current_room.floor,
+                'has_been_visited': current_room.has_been_visited,
+                'has_staircase': current_room.has_staircase,
+                'has_ally': current_room.has_ally(),
+                'ally_name': current_room.ally_data.get('name') if current_room.ally_data else None
+            },
+            'available_directions': current_room.get_available_directions(),
+            'connections': {direction: room_id for direction, room_id in current_room.connections.items()},
+            'player_status': {
+                'in_battle': player.in_battle,
+                'health': f"{player.health}/{player.max_health}",
+                'level': player.level,
+                'experience': player.get_current_level_progress()
+            }
+        }
+        
+        return create_success_response(response_data, "Room inspection completed")
+        
+    except Exception as e:
+        return create_error_response(f"Error inspecting room: {str(e)}"), 500
+
+
 @bp.route('/player/move', methods=['POST'])
 def move_player():
     """
@@ -145,13 +207,12 @@ def move_player():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'direction' not in data:
-            return create_error_response("Missing session_id or direction"), 400
-        
-        session_id = data['session_id']
-        direction = sanitize_input(data['direction'])
-        
+        from app.models.request_models import PlayerMoveRequest
+        req = PlayerMoveRequest.parse_obj(request.get_json() or {})
+        session_id = req.session_id
+        direction = req.direction
+        direction = sanitize_input(direction)
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -190,7 +251,13 @@ def move_player():
             # Store ally for future battles - it will be used automatically in the next combat
         
         # Check for enemy encounter
+        encounter_roll_happened = False
+        encounter_roll_result_debug = "no_roll"
+        
         if new_room and controllers['combat'].check_encounter_chance(new_room):
+            encounter_roll_happened = True
+            encounter_roll_result_debug = "encounter_triggered"
+            
             # Generate enemy for encounter
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
@@ -202,6 +269,9 @@ def move_player():
             combat_result = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
             encounter_occurred = True
             encounter_result = combat_result
+        elif new_room:
+            encounter_roll_happened = True
+            encounter_roll_result_debug = "no_encounter"
         
         # NOW mark room as visited after encounter check
         if new_room:
@@ -222,9 +292,9 @@ def move_player():
         response_data['encounter_occurred'] = encounter_occurred
         response_data['ally_encountered'] = ally_encountered
         
-        # Add more detailed debug info
+        # Add more detailed debug info with correct encounter roll result
         if new_room:
-            response_data['debug']['encounter_roll_result'] = controllers['combat'].check_encounter_chance(new_room) if not new_room.has_been_visited else "room_already_visited"
+            response_data['debug']['encounter_roll_result'] = encounter_roll_result_debug
             response_data['debug']['room_visited_after_move'] = new_room.has_been_visited
         
         if encounter_occurred:
@@ -252,14 +322,15 @@ def player_attack():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'action' not in data:
-            return create_error_response("Missing required fields"), 400
-        
-        session_id = data['session_id']
-        action = data['action']
-        use_ally = data.get('use_ally', False)
-        
+        from app.models.request_models import CombatAttackRequest
+        req = CombatAttackRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.action:
+            return create_error_response("Missing session_id or action"), 400
+
+        session_id = req.session_id
+        action = req.action
+        use_ally = req.use_ally
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -306,13 +377,15 @@ def attack_enemy():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'enemy_data' not in data:
-            return create_error_response("Missing session_id or enemy_data"), 400
-        
-        session_id = data['session_id']
-        enemy_data = data['enemy_data']
-        
+        from app.models.request_models import CombatUseAllyRequest
+        req = CombatUseAllyRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.ally_index or not req.enemy_data:
+            return create_error_response("Missing required fields"), 400
+
+        session_id = req.session_id
+        ally_index = req.ally_index
+        enemy_data = req.enemy_data
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -356,13 +429,14 @@ def flee_combat():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'enemy_data' not in data:
+        from app.models.request_models import CombatFleeRequest
+        req = CombatFleeRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.enemy_data:
             return create_error_response("Missing session_id or enemy_data"), 400
-        
-        session_id = data['session_id']
-        enemy_data = data['enemy_data']
-        
+
+        session_id = req.session_id
+        enemy_data = req.enemy_data
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -412,11 +486,12 @@ def submit_score():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
@@ -447,11 +522,12 @@ def get_player_statistics():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
@@ -482,11 +558,12 @@ def delete_player():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Delete player
         user_db = get_user_db()
@@ -501,16 +578,111 @@ def delete_player():
         return create_error_response(f"Error deleting player: {str(e)}"), 500
 
 
-# Health check for individual components
-@bp.route('/debug/room', methods=['POST'])
-def debug_room_info():
-    """Debug endpoint to check room encounter and staircase status."""
+@bp.route('/player/heal', methods=['POST'])
+def heal_player():
+    """
+    Restore player to full health (debug/cheat endpoint).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
     try:
         data = request.get_json()
         if not data or 'session_id' not in data:
             return create_error_response("Missing session_id"), 400
         
         session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Heal to full
+        old_health = player.health
+        player.health = player.max_health
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        return create_success_response({
+            'old_health': old_health,
+            'new_health': player.health,
+            'max_health': player.max_health,
+            'message': f'Health restored from {old_health} to {player.health}!'
+        }, "Player healed to full health")
+        
+    except Exception as e:
+        return create_error_response(f"Error healing player: {str(e)}"), 500
+
+
+@bp.route('/debug/staircases', methods=['POST'])
+def debug_staircases():
+    """
+    Debug endpoint to check all staircases on current floor.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Get all rooms on current floor
+        room_db = controllers['movement'].room_db
+        floor_rooms = room_db.get_floor_rooms(player.floor)
+        
+        staircase_info = {}
+        for room_id, room_data in floor_rooms.items():
+            has_staircase = room_data.get('has_staircase', False)
+            staircase_info[room_id] = {
+                'name': room_data.get('name', 'Unknown'),
+                'has_staircase': has_staircase,
+                'has_been_visited': room_data.get('has_been_visited', False)
+            }
+        
+        return create_success_response({
+            'floor': player.floor,
+            'current_room': player.room_id,
+            'total_rooms': len(floor_rooms),
+            'rooms_with_staircases': sum(1 for info in staircase_info.values() if info['has_staircase']),
+            'room_details': staircase_info
+        }, "Staircase debug information")
+        
+    except Exception as e:
+        return create_error_response(f"Error getting staircase debug info: {str(e)}"), 500
+
+
+# Health check for individual components
+@bp.route('/debug/room', methods=['POST'])
+def debug_room_info():
+    """Debug endpoint to check room encounter and staircase status."""
+    try:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
+            return create_error_response("Missing session_id"), 400
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
