@@ -6,8 +6,8 @@ from flask import Blueprint, request, jsonify, current_app, session
 from typing import Dict, Any, Optional
 import uuid
 
-from .models import Player, Enemy, Ally, Room
-from .controllers import MovementController, CombatController, GenerationController, ScoringController
+from .models import Player, Enemy, Ally, Room, Item
+from .controllers import MovementController, CombatController, GenerationController, ScoringController, InventoryController
 from .utils import UserDB, create_error_response, create_success_response, sanitize_input
 
 # Create blueprint
@@ -20,7 +20,8 @@ def get_controllers():
         'movement': MovementController(),
         'combat': CombatController(),
         'generation': GenerationController(),
-        'scoring': ScoringController()
+        'scoring': ScoringController(),
+        'inventory': InventoryController()
     }
 
 def get_user_db():
@@ -129,10 +130,12 @@ def get_player_status():
                 'floor': player.floor,
                 'room_id': player.room_id,
                 'is_alive': player.is_alive(),
-                'allies_count': len(player.allies)
+                'allies_count': len(player.allies),
+                'inventory_count': len(player.inventory)
             },
             'current_room': current_room.get_room_info(),
-            'movement_options': movement_info['data'] if not movement_info.get('error') else {}
+            'movement_options': movement_info['data'] if not movement_info.get('error') else {},
+            'inventory': [item.get_item_info() for item in player.inventory]
         }
         
         return create_success_response(response_data, "Player status retrieved")
@@ -244,6 +247,8 @@ def move_player():
         encounter_result = None
         ally_encountered = False
         ally_result = None
+        item_found = False
+        item_result = None
         
         # Check for ally first (if room has one)
         ally_data = None
@@ -280,6 +285,17 @@ def move_player():
         elif new_room:
             encounter_roll_happened = True
             encounter_roll_result_debug = "no_encounter"
+            
+            # If no encounter, check for item find (high chance)
+            found_item, item = controllers['inventory'].roll_for_item_find(player, new_room.has_been_visited)
+            if found_item and item:
+                item_found = True
+                controllers['inventory'].add_item_to_inventory(player, item)
+                item_result = {
+                    'item_found': True,
+                    'item': item.get_item_info(),
+                    'message': f"You found {item.name}!"
+                }
         
         # NOW mark room as visited after encounter check
         if new_room:
@@ -299,6 +315,7 @@ def move_player():
         response_data['exploration_gold'] = exploration_gold
         response_data['encounter_occurred'] = encounter_occurred
         response_data['ally_encountered'] = ally_encountered
+        response_data['item_found'] = item_found
         
         # Add more detailed debug info with correct encounter roll result
         if new_room:
@@ -310,6 +327,9 @@ def move_player():
             
         if ally_encountered:
             response_data['ally_result'] = ally_result
+        
+        if item_found:
+            response_data['item_result'] = item_result
         
         return create_success_response(response_data, "Movement completed")
         
@@ -678,6 +698,138 @@ def debug_staircases():
         
     except Exception as e:
         return create_error_response(f"Error getting staircase debug info: {str(e)}"), 500
+
+
+### Inventory Endpoints ###
+
+@bp.route('/inventory/view', methods=['POST'])
+def view_inventory():
+    """
+    View player's inventory.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get inventory
+        controllers = get_controllers()
+        result = controllers['inventory'].get_inventory(player)
+        
+        return result
+        
+    except Exception as e:
+        return create_error_response(f"Error viewing inventory: {str(e)}"), 500
+
+
+@bp.route('/inventory/use', methods=['POST'])
+def use_item():
+    """
+    Use an item from inventory.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "item_id": "item-uuid"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'item_id' not in data:
+            return create_error_response("Missing session_id or item_id"), 400
+        
+        session_id = data['session_id']
+        item_id = data['item_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get enemy if in battle
+        enemy = None
+        if player.in_battle and player.current_enemy:
+            enemy = Enemy.from_dict(player.current_enemy)
+        
+        # Use item
+        controllers = get_controllers()
+        success, result = controllers['inventory'].use_item(player, item_id, enemy)
+        
+        # If enemy was affected, update it in player's battle state
+        if enemy and player.in_battle:
+            player.current_enemy = enemy.to_dict()
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        if success:
+            return result
+        else:
+            return result, 400
+        
+    except Exception as e:
+        return create_error_response(f"Error using item: {str(e)}"), 500
+
+
+@bp.route('/inventory/discard', methods=['POST'])
+def discard_item():
+    """
+    Discard an item from inventory.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "item_id": "item-uuid"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'item_id' not in data:
+            return create_error_response("Missing session_id or item_id"), 400
+        
+        session_id = data['session_id']
+        item_id = data['item_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Discard item
+        controllers = get_controllers()
+        success, result = controllers['inventory'].discard_item(player, item_id)
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        if success:
+            return result
+        else:
+            return result, 400
+        
+    except Exception as e:
+        return create_error_response(f"Error discarding item: {str(e)}"), 500
 
 
 # Health check for individual components
