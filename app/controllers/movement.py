@@ -69,11 +69,10 @@ class MovementController:
         # Move player to the new room
         player.move_to_room(next_room_id)
         
-        # Mark room as visited
-        next_room.visit()
-        self._save_room(next_room)
+        # DON'T mark room as visited yet - let the route handler check for encounters first
+        # The room will be marked as visited in the route after encounter processing
         
-        # Save the current room as well (in case connections were updated)
+        # Save the current room (in case connections were updated)
         self._save_room(current_room)
         
         # Prepare response
@@ -87,6 +86,12 @@ class MovementController:
                 "room_id": player.room_id,
                 "health": f"{player.health}/{player.max_health}",
                 "gold": player.gold
+            },
+            # Add debug info
+            "debug": {
+                "room_was_new": not next_room.has_been_visited,
+                "encounter_chance": next_room.encounter_chance,
+                "has_staircase": next_room.has_staircase
             }
         }
         
@@ -113,7 +118,7 @@ class MovementController:
         # Get or create starting room for new floor
         start_room = self.get_room("start", player.floor)
         if not start_room:
-            start_room = self._generate_starting_room(player.floor)
+            start_room = self._generate_start_room(player.floor)
             self._save_room(start_room)
         
         response_data = {
@@ -196,16 +201,47 @@ class MovementController:
         from ..utils.helpers import calculate_encounter_chance
         room.set_encounter_chance(calculate_encounter_chance(floor))
         
-        # Randomly add staircase (5% chance, but not in starting room)
-        if room_id != "start" and random.random() < 0.05:
+        # Randomly add staircase (15% chance, but not in starting room)
+        if room_id != "start" and random.random() < 0.15:
             room.set_staircase(True)
+        
+        # Randomly add ally (8% chance, but not in starting room)
+        if room_id != "start" and random.random() < 0.08:
+            ally_data = self._generate_room_ally(floor)
+            room.set_ally(ally_data)
         
         # Generate connections to other rooms
         self._generate_room_connections(room)
         
         return room
     
-    def _generate_starting_room(self, floor: int) -> Room:
+    def _generate_room_ally(self, floor: int) -> Dict[str, Any]:
+        """
+        Generate ally data for a room.
+        
+        Args:
+            floor (int): Floor number for scaling
+            
+        Returns:
+            Dict[str, Any]: Ally data
+        """
+        # Import here to avoid circular imports
+        from .generation import GenerationController
+        
+        generation_controller = GenerationController()
+        ally_content = generation_controller.generate_ally_content(floor)
+        
+        # Create ally data with stats scaled to floor
+        ally_data = {
+            'name': ally_content['name'],
+            'description': ally_content['description'],
+            'attack_power': 10 + (floor * 2),  # Scales with floor
+            'floor': floor
+        }
+        
+        return ally_data
+    
+    def _generate_start_room(self, floor: int) -> Room:
         """
         Generate the starting room for a floor.
         
@@ -282,7 +318,7 @@ class MovementController:
         """
         start_room = self.get_room("start", player.floor)
         if not start_room:
-            start_room = self._generate_starting_room(player.floor)
+            start_room = self._generate_start_room(player.floor)
             self._save_room(start_room)
         
         return start_room
