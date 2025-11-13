@@ -12,6 +12,7 @@ const els = {
   combatLog: document.getElementById('combat-log'),
   highScores: document.getElementById('high-scores'),
   newPlayerBtn: document.getElementById('btn-new-player'),
+  playerNameInput: document.getElementById('player-name-input'),
   refreshBtn: document.getElementById('btn-refresh'),
   submitScoreBtn: document.getElementById('btn-submit-score'),
   deleteBtn: document.getElementById('btn-delete'),
@@ -52,11 +53,12 @@ function updatePlayer(data) {
   if(!data){ return; }
   const p = data.player;
   if(!p){ return; }
-  els.playerStats.textContent = `Name: ${p.name}\nHealth: ${p.health}\nGold: ${p.gold}\nFloor: ${p.floor}\nRoom: ${p.room_id}\nAllies: ${p.allies_count}`;
+  if(typeof p.in_battle !== 'undefined') { inBattle = p.in_battle; }
+  els.playerStats.textContent = `Name: ${p.name}\nHealth: ${p.health}\nGold: ${p.gold}\nFloor: ${p.floor}\nRoom: ${p.room_id}\nAllies: ${p.allies_count}\nIn Battle: ${inBattle ? 'Yes':'No'}`;
   // Enable movement buttons
   els.movementButtons.forEach(btn=>{
     const dir = btn.dataset.dir;
-    btn.disabled = !p.is_alive;
+    btn.disabled = !p.is_alive || inBattle;
   });
   els.submitScoreBtn.disabled = !p.is_alive;
   els.deleteBtn.disabled = !sessionId;
@@ -105,7 +107,8 @@ function updateCombatButtons(){
 }
 
 function createPlayer(){
-  apiPost('/player/new',{name:'Web Delver'}).then(resp=>{
+  const name = (els.playerNameInput.value || '').trim() || 'Web Delver';
+  apiPost('/player/new',{name}).then(resp=>{
     if(resp.error) return logMessage(resp.message||'Error creating player','error');
     sessionId = resp.data.session_id;
     logMessage(resp.message||'Player created');
@@ -167,7 +170,9 @@ function flee(){
   if(!sessionId || !inBattle) return;
   apiPost('/player/attack',{session_id:sessionId,action:'flee'}).then(resp=>{
     if(resp.error) return logMessage(resp.message||'Flee failed','error');
-    logMessage(resp.data?.message || resp.message || 'Fled from battle');
+    const d = resp.data || {};
+    logMessage(d.message || 'Fled from battle');
+    if(d.player_health !== undefined){ logMessage(`You took 10 damage. Health now ${d.player_health}.`,'encounter'); }
     inBattle = false; lastEnemy = null;
     updateCombatButtons();
     refreshStatus();

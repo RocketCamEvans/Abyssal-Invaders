@@ -193,14 +193,16 @@ class CombatController:
         """
         if not player.in_battle:
             return create_error_response("Player is not in battle!")
-        
-        gold_lost = player.flee_battle()
-        
+
+        # Apply flat 10 damage (ignores defense) as flee penalty
+        player.health = max(0, player.health - 10)
+        player.end_battle()
+
         return create_success_response({
-            "message": f"You fled from battle and lost {gold_lost} gold!",
-            "gold_lost": gold_lost,
-            "current_gold": player.gold,
-            "battle_ended": True
+            "message": "You fled from battle, taking 10 damage but remaining in the room.",
+            "player_health": player.health,
+            "battle_ended": True,
+            "flee_damage": 10
         }, "Fled from battle")
     
     def _generate_ai_battle_description(self, player: Player, enemy: Enemy, room: Room) -> str:

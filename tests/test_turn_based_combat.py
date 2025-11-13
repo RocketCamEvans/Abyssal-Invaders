@@ -180,9 +180,8 @@ def test_turn_based_combat():
             
             if flee_response.status_code == 200:
                 flee_data = flee_response.json()['data']
-                print(f"🏃 Fled from battle!")
-                print(f"   💰 Gold lost: {flee_data.get('gold_lost', 0)}")
-                print(f"   💰 Current gold: {flee_data.get('current_gold', 0)}")
+                print(f"🏃 Fled from battle taking 10 damage!")
+                print(f"   ❤️ Health after flee: {flee_data.get('player_health')}" )
             else:
                 print(f"❌ Flee failed: {flee_response.text}")
             

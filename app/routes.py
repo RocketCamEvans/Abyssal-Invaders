@@ -121,7 +121,8 @@ def get_player_status():
                 'floor': player.floor,
                 'room_id': player.room_id,
                 'is_alive': player.is_alive(),
-                'allies_count': len(player.allies)
+                'allies_count': len(player.allies),
+                'in_battle': player.in_battle
             },
             'current_room': current_room.get_room_info(),
             'movement_options': movement_info['data'] if not movement_info.get('error') else {}
@@ -163,6 +164,10 @@ def move_player():
         if not player.is_alive():
             return create_error_response("Cannot move - player is not alive"), 400
         
+        # Block movement if currently in battle
+        if player.in_battle:
+            return create_error_response("Cannot move while in battle. Use attack or flee."), 400
+
         # Attempt movement
         controllers = get_controllers()
         success, movement_result = controllers['movement'].move_player(player, direction)
@@ -313,7 +318,7 @@ def player_attack():
             # Execute attack
             attack_result = controllers['combat'].execute_attack(player, use_ally)
         elif action == "flee":
-            # Execute flee
+            # Execute flee with health penalty
             attack_result = controllers['combat'].execute_flee(player)
         else:
             return create_error_response("Invalid action. Use 'attack' or 'flee'"), 400
