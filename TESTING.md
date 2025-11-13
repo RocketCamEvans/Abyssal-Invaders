@@ -24,7 +24,8 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 /tests/
 ├── app/
 │   └── controllers/
-│       └── test_combat.py          # Comprehensive CombatController tests
+│       ├── test_combat.py          # Comprehensive CombatController tests
+│       └── test_generation.py      # Comprehensive GenerationController tests
 └── [other test files...]
 ```
 
@@ -78,18 +79,66 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 - Combat description generation
 - Damage calculation with various scenarios
 
+## GenerationController Testing (`test_generation.py`)
+
+### Test Coverage Areas
+
+#### 1. Controller Initialization
+- OpenAI client setup testing (available, unavailable, configuration failure scenarios)
+- Template loading verification for all content types
+- Fallback behavior when OpenAI is not configured
+
+#### 2. Enemy Content Generation (`generate_enemy_content`)
+- OpenAI integration (success, failure, fallback scenarios)
+- Template-based generation with difficulty scaling
+- Floor-based enemy selection (basic, intermediate, advanced, legendary)
+- Room context integration for contextual generation
+
+#### 3. Ally Content Generation (`generate_ally_content`)
+- OpenAI integration testing (success and failure paths)
+- Template-based ally generation with appropriate descriptions
+- Floor context integration for ally descriptions
+
+#### 4. Room Content Generation (`generate_room_content`)
+- OpenAI integration for room generation
+- Difficulty-based room template selection
+- Floor-appropriate room naming and descriptions
+
+#### 5. Combat Description Generation
+- Dynamic combat descriptions for different action types (encounter, victory)
+- Player/enemy/room context integration
+- Template variety and randomization
+
+#### 6. Helper Methods
+- Difficulty modifier calculation (floor-based scaling)
+- Room context extraction and formatting
+- Individual description generators for enemies, allies, and rooms
+
+#### 7. Template System
+- Enemy name templates (4 difficulty levels with 10+ names each)
+- Ally name templates (18+ diverse ally types)
+- Room name templates (4 difficulty levels with 10+ names each)
+- Description templates (atmospheric and dangerous categories)
+
+#### 8. OpenAI Integration Fallbacks
+- Graceful degradation when OpenAI API fails
+- Exception handling for API errors
+- Consistent output format regardless of generation method
+
 ### Test Categories
 
 #### Unit Tests (Primary Focus)
 - **TestCombatController**: Comprehensive tests for all CombatController methods
+- **TestGenerationController**: Comprehensive tests for all GenerationController methods
 - Mocks all external dependencies (OpenAI, random functions, model interactions)
 - Tests individual method behavior in isolation
 - Covers edge cases, error conditions, and boundary scenarios
 
 #### Integration Tests
-- **TestCombatControllerIntegration**: End-to-end workflow testing
+- **TestCombatControllerIntegration**: End-to-end workflow testing for combat
+- **TestGenerationControllerIntegration**: End-to-end workflow testing for content generation
 - Uses real model objects (Player, Enemy, Room) without mocking
-- Verifies complete combat flows (player victory, player defeat, turn-based battles)
+- Verifies complete workflows (combat flows, content generation consistency)
 - Ensures different components work together correctly
 
 ### Mocking Strategy
@@ -99,10 +148,12 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 2. **Random Functions**: `random.random()`, `random.choice()`, `random.randint()` controlled for predictable outcomes
 3. **Utility Functions**: `calculate_damage_with_variance()`, `roll_dice()` mocked for controlled results
 4. **Model Methods**: Specific model methods mocked when testing controller logic in isolation
+5. **OpenAI Client Creation**: `create_openai_client()` mocked to control client availability scenarios
 
 #### Real Objects Used
 - Player, Enemy, Room model instances used to test actual object interactions
 - Helper functions from utils module used to test real integration
+- Template data systems tested with real data structures
 
 ## Running Tests
 
@@ -118,12 +169,15 @@ pytest
 
 # Run specific test file
 pytest tests/app/controllers/test_combat.py
+pytest tests/app/controllers/test_generation.py
 
 # Run tests with coverage
 pytest --cov=app/controllers/combat tests/app/controllers/test_combat.py
+pytest --cov=app/controllers/generation tests/app/controllers/test_generation.py
 
 # Run tests with detailed coverage report
 pytest --cov=app/controllers/combat --cov-report=html tests/app/controllers/test_combat.py
+pytest --cov=app/controllers/generation --cov-report=html tests/app/controllers/test_generation.py
 ```
 
 ### Test Output
@@ -166,4 +220,4 @@ Tests provide detailed feedback on:
 
 *Last Updated: November 13, 2025*
 *Framework: pytest*
-*Coverage: combat.py - Comprehensive unit and integration testing*
+*Coverage: combat.py, generation.py - Comprehensive unit and integration testing*
