@@ -1,0 +1,33 @@
+dungeon_crawler_api/
+│
+├── app/
+│   ├── __init__.py          # Flask app factory
+│   ├── routes.py            # API endpoints (REST)
+│   ├── controllers/         # Game logic
+│   │   ├── movement.py      # Handle player movement
+│   │   ├── combat.py        # Enemy encounters & ally attacks
+│   │   ├── generation.py    # LLM-based name/description generation
+│   │   └── scoring.py       # Gold & high score logic
+│   ├── models/              # Data structures
+│   │   ├── player.py        # Player class
+│   │   ├── room.py          # Room class
+│   │   ├── enemy.py         # Enemy class
+│   │   └── ally.py          # Ally class
+│   ├── utils/
+│   │   ├── file_db.py       # File-based persistence (JSON or Pickle)
+│   │   └── helpers.py       # Common utilities
+│   └── templates/           # (Optional) HTML if you serve a UI
+│
+├── data/
+│   ├── users.json           # Stores user sessions & progress
+│   ├── highscores.json      # Stores leaderboard
+│   └── rooms.json           # Predefined or generated rooms
+│
+├── tests/
+│   ├── test_routes.py
+│   ├── test_movement.py
+│   └── test_combat.py
+│
+├── requirements.txt
+├── run.py                   # Entry point for Flask app
+└── README.md
