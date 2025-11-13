@@ -24,6 +24,13 @@ class Player:
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
         
+        # Battle state tracking
+        self.in_battle = False
+        self.current_enemy = None  # Current enemy data (dict)
+        self.current_ally = None  # Current ally for this battle (if any)
+        self.ally_used = False  # Whether ally has been used in current battle
+        self.battle_room = None  # Room data where battle is taking place
+        
     def take_damage(self, damage: int) -> bool:
         """
         Apply damage to the player.
@@ -107,6 +114,43 @@ class Player:
         """
         return self.health > 0
     
+    def start_battle(self, enemy_data: dict, room_data: dict, ally_data: Optional[dict] = None):
+        """
+        Start a new battle with an enemy.
+        
+        Args:
+            enemy_data (dict): Enemy data dictionary
+            room_data (dict): Room data dictionary
+            ally_data (Optional[dict]): Ally data if present
+        """
+        self.in_battle = True
+        self.current_enemy = enemy_data
+        self.battle_room = room_data
+        self.current_ally = ally_data
+        self.ally_used = False
+    
+    def end_battle(self):
+        """
+        End the current battle and reset battle state.
+        """
+        self.in_battle = False
+        self.current_enemy = None
+        self.battle_room = None
+        self.current_ally = None
+        self.ally_used = False
+    
+    def flee_battle(self) -> int:
+        """
+        Flee from battle, losing half of current gold.
+        
+        Returns:
+            int: Amount of gold lost
+        """
+        gold_lost = self.gold // 2
+        self.gold -= gold_lost
+        self.end_battle()
+        return gold_lost
+    
     def to_dict(self) -> dict:
         """
         Convert player to dictionary for JSON serialization.
@@ -125,7 +169,12 @@ class Player:
             "floor": self.floor,
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
-            "allies": [ally.to_dict() for ally in self.allies]
+            "allies": [ally.to_dict() for ally in self.allies],
+            "in_battle": self.in_battle,
+            "current_enemy": self.current_enemy,
+            "current_ally": self.current_ally,
+            "ally_used": self.ally_used,
+            "battle_room": self.battle_room
         }
     
     @classmethod
@@ -151,4 +200,12 @@ class Player:
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])
         player.allies = [Ally.from_dict(ally_data) for ally_data in data["allies"]]
+        
+        # Battle state (with defaults for backward compatibility)
+        player.in_battle = data.get("in_battle", False)
+        player.current_enemy = data.get("current_enemy", None)
+        player.current_ally = data.get("current_ally", None)
+        player.ally_used = data.get("ally_used", False)
+        player.battle_room = data.get("battle_room", None)
+        
         return player

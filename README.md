@@ -6,8 +6,10 @@ A Python Flask-based dungeon crawler game with REST API endpoints. Players explo
 
 - **Session-based gameplay** - Each player has a unique session ID tracked via cookies
 - **Procedural dungeon generation** - Rooms are generated dynamically with random connections
-- **Turn-based combat system** - Fight enemies with attack/flee options
-- **Ally recruitment** - Find and recruit allies for one-time powerful attacks
+- **Turn-based combat system** - Strategic battles with attack/flee decisions
+- **AI-powered battle descriptions** - Immersive fantasy narrator descriptions using OpenAI
+- **Random ally encounters** - 8% chance to find allies in rooms for special attacks
+- **Flee mechanics** - Strategic risk/reward - lose half gold to escape battles
 - **Progressive difficulty** - Enemies get stronger as you go deeper
 - **High score leaderboard** - Compete based on gold earned
 - **LLM-ready content generation** - Structured for AI-generated names and descriptions
@@ -66,17 +68,18 @@ The API will be available at `http://localhost:5000`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/combat/attack` | Attack an enemy |
-| `POST` | `/api/combat/use_ally` | Use ally's attack |
-| `POST` | `/api/combat/flee` | Attempt to flee from combat |
+| `POST` | `/api/player/attack` | **Turn-based combat** - Attack or flee from battle |
+| `POST` | `/api/combat/attack` | *(Legacy)* Attack an enemy |
+| `POST` | `/api/combat/flee` | *(Legacy)* Attempt to flee from combat |
 
 ### Encounters & Scoring
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/encounter/ally` | Encounter a helpful ally |
 | `GET` | `/api/scores/highscores` | Get leaderboard |
 | `POST` | `/api/scores/submit` | Submit final score |
+
+**Note**: Allies are now encountered randomly when moving to rooms (8% chance) instead of through a dedicated endpoint.
 
 ### System
 
@@ -132,7 +135,72 @@ curl -X POST http://localhost:5000/api/player/move \
   }'
 ```
 
-### 3. Get High Scores
+### 3. Turn-Based Combat
+
+When you encounter an enemy, the battle system starts automatically. Use the attack endpoint to take turns:
+
+**Attack the enemy:**
+```bash
+curl -X POST http://localhost:5000/api/player/attack \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "12345678-1234-1234-1234-123456789012",
+    "action": "attack"
+  }'
+```
+
+**Use ally special attack (first turn only):**
+```bash
+curl -X POST http://localhost:5000/api/player/attack \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "12345678-1234-1234-1234-123456789012",
+    "action": "attack",
+    "use_ally": true
+  }'
+```
+
+**Flee from battle (lose half gold):**
+```bash
+curl -X POST http://localhost:5000/api/player/attack \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "12345678-1234-1234-1234-123456789012",
+    "action": "flee"
+  }'
+```
+
+**Combat Response:**
+```json
+{
+  "error": false,
+  "message": "Attack executed",
+  "data": {
+    "battle_log": [
+      {
+        "type": "ally_attack",
+        "attacker": "Hero McHeroface with Brave Scout",
+        "target": "Shadow Beast",
+        "damage": 23,
+        "description": "Brave Scout unleashes their special move, dealing 23 damage!"
+      },
+      {
+        "type": "enemy_attack",
+        "attacker": "Shadow Beast",
+        "target": "Hero McHeroface",
+        "damage": 8,
+        "description": "Shadow Beast attacks Hero McHeroface for 8 damage!"
+      }
+    ],
+    "battle_ended": false,
+    "player_health": 92,
+    "enemy_health": 12,
+    "ally_available": false
+  }
+}
+```
+
+### 4. Get High Scores
 
 ```bash
 curl http://localhost:5000/api/scores/highscores
@@ -148,10 +216,11 @@ curl http://localhost:5000/api/scores/highscores
 - Moving to new rooms awards small amounts of exploration gold
 
 ### Combat
+- **Turn-based system** - Players must send attack commands to progress through battles
 - **30% base encounter chance** when entering a room (increases with floor level)
-- Combat is automatic once initiated - player and enemy exchange attacks
-- Players can **flee** with 50-80% success rate (based on current health)
-- **Allies** can be used for powerful one-time attacks
+- Use `/api/player/attack` with `"action": "attack"` to fight or `"action": "flee"` to escape
+- **Fleeing penalty** - Players lose half their current gold when fleeing battles
+- **AI-generated descriptions** - Each battle gets immersive fantasy narrator descriptions
 - Defeating enemies awards gold based on their difficulty
 
 ### Progression
@@ -161,10 +230,11 @@ curl http://localhost:5000/api/scores/highscores
 - **Health** regenerates slightly after some victories
 
 ### Allies
-- Found randomly during exploration
-- Each ally can perform one powerful attack
-- Ally strength scales with the current floor level
-- Strategic use of allies can turn difficult battles
+- **Random encounters** - 8% chance to find an ally when entering a room
+- **Automatic usage** - First attack in battle uses ally's special move for bonus damage
+- **One-time use** - Each ally provides one powerful attack per battle
+- **Scaling power** - Ally strength scales with the current floor level
+- **Strategic advantage** - Can turn the tide of difficult battles
 
 ## Project Structure
 
@@ -240,7 +310,14 @@ def generate_enemy_content(self, floor: int, room: Optional[Room] = None) -> Dic
 - **Controller pattern** - business logic separated from routes
 - **Modular structure** - easy to add new features or swap components
 
-## Recent Fixes
+## Recent Updates
+
+### New: Turn-Based Combat System 🆕
+- **Turn-based battles** - Use `/api/player/attack` to control combat flow
+- **AI battle descriptions** - OpenAI generates immersive fantasy narrator text
+- **Strategic fleeing** - Lose half gold to escape, adding risk/reward decisions
+- **Ally overhaul** - Random room encounters (8%) with automatic first-turn usage
+- **Battle state tracking** - Persistent combat state between API calls
 
 ### Fixed: Room ID Exponential Growth
 - **Issue**: Room IDs were growing exponentially (e.g., `floor_1_floor_1_floor_1_start_south_south`)
@@ -252,10 +329,14 @@ def generate_enemy_content(self, floor: int, room: Optional[Room] = None) -> Dic
 - **Solution**: Implemented bidirectional room connections when moving between rooms
 - **Result**: Players can now backtrack naturally through the dungeon
 
-### Testing the Fixes
-Run the demonstration script to see both fixes in action:
+### Testing the Updates
+Run the test scripts to see the features in action:
 ```bash
-python test_backtracking.py
+# Test turn-based combat system
+python tests/test_turn_based_combat.py
+
+# Test backtracking and room generation
+python tests/test_backtracking.py
 ```
 
 ## Contributing

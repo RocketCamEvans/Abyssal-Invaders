@@ -20,6 +20,7 @@ class Room:
         self.has_staircase = False
         self.encounter_chance = 0.3  # 30% chance of encounter
         self.has_been_visited = False
+        self.ally_data = None  # Ally data if room contains an ally
         
     def add_connection(self, direction: str, room_id: str):
         """
@@ -72,6 +73,35 @@ class Room:
         """
         self.has_staircase = has_staircase
     
+    def set_ally(self, ally_data: Optional[Dict] = None):
+        """
+        Set ally data for this room.
+        
+        Args:
+            ally_data (Optional[Dict]): Ally data or None to remove ally
+        """
+        self.ally_data = ally_data
+    
+    def has_ally(self) -> bool:
+        """
+        Check if this room has an ally.
+        
+        Returns:
+            bool: True if room has ally, False otherwise
+        """
+        return self.ally_data is not None
+    
+    def take_ally(self) -> Optional[Dict]:
+        """
+        Take the ally from this room (one-time use).
+        
+        Returns:
+            Optional[Dict]: Ally data if present, None otherwise
+        """
+        ally = self.ally_data
+        self.ally_data = None  # Remove ally after taking
+        return ally
+    
     def roll_for_encounter(self) -> bool:
         """
         Roll to see if an encounter occurs in this room.
@@ -115,7 +145,8 @@ class Room:
             "connections": self.connections,
             "has_staircase": self.has_staircase,
             "encounter_chance": self.encounter_chance,
-            "has_been_visited": self.has_been_visited
+            "has_been_visited": self.has_been_visited,
+            "ally_data": self.ally_data
         }
     
     @classmethod
@@ -139,6 +170,7 @@ class Room:
         room.has_staircase = data["has_staircase"]
         room.encounter_chance = data["encounter_chance"]
         room.has_been_visited = data["has_been_visited"]
+        room.ally_data = data.get("ally_data", None)  # Backward compatibility
         return room
     
     def get_room_info(self) -> dict:
@@ -154,5 +186,7 @@ class Room:
             "description": self.description,
             "floor": self.floor,
             "available_directions": self.get_available_directions(),
-            "has_staircase": self.has_staircase
+            "has_staircase": self.has_staircase,
+            "has_ally": self.has_ally(),
+            "ally_name": self.ally_data.get('name') if self.ally_data else None
         }
