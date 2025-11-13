@@ -263,38 +263,50 @@ class RoomDB(FileDB):
         super().__init__(data_dir)
         self.rooms_file = "rooms"
     
-    def get_room(self, room_id: str, floor: int) -> Optional[Dict]:
+    def get_room(self, room_id: str, floor: int, session_id: str = None) -> Optional[Dict]:
         """
-        Get room data by ID and floor.
+        Get room data by ID and floor, optionally session-specific.
         
         Args:
             room_id (str): Room ID
             floor (int): Floor number
+            session_id (str): Optional session ID for session-specific rooms
             
         Returns:
             Optional[Dict]: Room data or None if not found
         """
         rooms = self.load_data(self.rooms_file, {})
-        floor_key = str(floor)
+        
+        # Use session-specific key if session_id provided
+        if session_id:
+            floor_key = f"{session_id}_{floor}"
+        else:
+            floor_key = str(floor)
         
         if floor_key in rooms and room_id in rooms[floor_key]:
             return rooms[floor_key][room_id]
         return None
     
-    def save_room(self, room_id: str, floor: int, room_data: Dict) -> bool:
+    def save_room(self, room_id: str, floor: int, room_data: Dict, session_id: str = None) -> bool:
         """
-        Save room data.
+        Save room data, optionally session-specific.
         
         Args:
             room_id (str): Room ID
             floor (int): Floor number
             room_data (Dict): Room data to save
+            session_id (str): Optional session ID for session-specific rooms
             
         Returns:
             bool: True if successful, False otherwise
         """
         rooms = self.load_data(self.rooms_file, {})
-        floor_key = str(floor)
+        
+        # Use session-specific key if session_id provided
+        if session_id:
+            floor_key = f"{session_id}_{floor}"
+        else:
+            floor_key = str(floor)
         
         if floor_key not in rooms:
             rooms[floor_key] = {}
@@ -302,16 +314,23 @@ class RoomDB(FileDB):
         rooms[floor_key][room_id] = room_data
         return self.save_data(self.rooms_file, rooms)
     
-    def get_floor_rooms(self, floor: int) -> Dict[str, Dict]:
+    def get_floor_rooms(self, floor: int, session_id: str = None) -> Dict[str, Dict]:
         """
-        Get all rooms for a specific floor.
+        Get all rooms for a specific floor, optionally session-specific.
         
         Args:
             floor (int): Floor number
+            session_id (str): Optional session ID for session-specific rooms
             
         Returns:
             Dict[str, Dict]: All rooms on the floor
         """
         rooms = self.load_data(self.rooms_file, {})
-        floor_key = str(floor)
+        
+        # Use session-specific key if session_id provided
+        if session_id:
+            floor_key = f"{session_id}_{floor}"
+        else:
+            floor_key = str(floor)
+            
         return rooms.get(floor_key, {})

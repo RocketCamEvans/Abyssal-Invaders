@@ -23,6 +23,16 @@ class MovementController:
         """
         self.room_db = room_db or RoomDB()
         self.room_cache = {}  # Cache rooms in memory for current session
+        self.current_session_id = None  # Track current session for session-specific rooms
+    
+    def set_session(self, session_id: str):
+        """
+        Set the current session ID for session-specific room management.
+        
+        Args:
+            session_id (str): Player session ID
+        """
+        self.current_session_id = session_id
     
     def move_player(self, player: Player, direction: str) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -72,6 +82,8 @@ class MovementController:
             if not next_room:
                 # Last resort: create a temporary room (this indicates a serious bug)
                 print(f"ERROR: Could not restore room {next_room_id}, creating temporary room")
+                print(f"ERROR: This should NOT happen! Current room: {old_room_id}, Direction: {normalized_direction}")
+                print(f"ERROR: Connection pointed to: {next_room_id}")
                 next_room = self._generate_room(next_room_id, player.floor)
                 self._save_room(next_room)
         
@@ -143,6 +155,11 @@ class MovementController:
                 "room_id": player.room_id,
                 "health": f"{player.health}/{player.max_health}",
                 "gold": player.gold
+            },
+            "debug": {
+                "room_was_new": False,  # Start room on new floor
+                "encounter_chance": start_room.encounter_chance,
+                "has_staircase": start_room.has_staircase
             }
         }
         
@@ -151,6 +168,7 @@ class MovementController:
     def get_room(self, room_id: str, floor: int) -> Optional[Room]:
         """
         Get a room by ID and floor, checking cache first.
+        Uses current session ID for session-specific rooms.
         
         Args:
             room_id (str): Room ID
@@ -159,10 +177,10 @@ class MovementController:
         Returns:
             Optional[Room]: Room object or None if not found
         """
-        cache_key = f"{floor}_{room_id}"
+        cache_key = f"{self.current_session_id}_{floor}_{room_id}" if self.current_session_id else f"{floor}_{room_id}"
         
         # Try to load from database first to ensure we have latest data
-        room_data = self.room_db.get_room(room_id, floor)
+        room_data = self.room_db.get_room(room_id, floor, self.current_session_id)
         if room_data:
             room = Room.from_dict(room_data)
             # Update cache with fresh data
@@ -212,6 +230,7 @@ class MovementController:
     def _save_room(self, room: Room) -> bool:
         """
         Save room to database and update cache.
+        Uses current session ID for session-specific rooms.
         
         Args:
             room (Room): Room to save
@@ -219,10 +238,10 @@ class MovementController:
         Returns:
             bool: True if successful
         """
-        cache_key = f"{room.floor}_{room.room_id}"
+        cache_key = f"{self.current_session_id}_{room.floor}_{room.room_id}" if self.current_session_id else f"{room.floor}_{room.room_id}"
         
-        # Save to database first
-        success = self.room_db.save_room(room.room_id, room.floor, room.to_dict())
+        # Save to database first (with session ID if available)
+        success = self.room_db.save_room(room.room_id, room.floor, room.to_dict(), self.current_session_id)
         
         if success:
             # Update cache only if database save succeeded
@@ -261,6 +280,7 @@ class MovementController:
     def clear_room_cache(self, floor: int = None):
         """
         Clear room cache for a specific floor or all floors.
+        Uses current session ID for session-specific cache clearing.
         
         Args:
             floor (int, optional): Floor to clear cache for, or None for all floors
@@ -268,7 +288,11 @@ class MovementController:
         if floor is None:
             self.room_cache.clear()
         else:
-            keys_to_remove = [k for k in self.room_cache.keys() if k.startswith(f"{floor}_")]
+            # Clear session-specific cache if session is set
+            if self.current_session_id:
+                keys_to_remove = [k for k in self.room_cache.keys() if k.startswith(f"{self.current_session_id}_{floor}_")]
+            else:
+                keys_to_remove = [k for k in self.room_cache.keys() if k.startswith(f"{floor}_")]
             for key in keys_to_remove:
                 del self.room_cache[key]
     
@@ -306,8 +330,8 @@ class MovementController:
             ally_data = self._generate_room_ally(floor)
             room.set_ally(ally_data)
         
-        # Generate connections to other rooms
-        self._generate_room_connections(room)
+        # Note: Room connections are now set up in _connect_floor_rooms during complete floor generation
+        # Don't generate random connections here as they need to be coordinated with the full floor layout
         
         return room
     
@@ -326,9 +350,11 @@ class MovementController:
         time_seed = int(time.time() * 1000) % 1000000  # Use millisecond timestamp
         random.seed(time_seed)
         
-        # Determine floor size (20-100 rooms) with more variation
-        floor_size = random.randint(15, 120)  # Wider range for more variety
+        # Determine floor size (5-15 rooms)
+        floor_size = random.randint(5, 15)
         rooms = {}
+        
+        print(f"DEBUG: Generating floor {floor} with {floor_size} total rooms (including start)")
         
         # Create start room
         start_room = self._generate_start_room(floor)
@@ -352,8 +378,20 @@ class MovementController:
         
         # Place exactly one staircase randomly (not in start room)
         non_start_rooms = [rid for rid in room_ids if rid != "start"]
-        staircase_room_id = random.choice(non_start_rooms)
-        rooms[staircase_room_id].set_staircase(True)
+        if non_start_rooms:
+            staircase_room_id = random.choice(non_start_rooms)
+            rooms[staircase_room_id].set_staircase(True)
+        else:
+            # If only start room exists, place staircase there
+            print(f"DEBUG: Only start room exists on floor {floor}, placing staircase in start room")
+            rooms["start"].set_staircase(True)
+        
+        print(f"DEBUG: Floor {floor} generated with {len(rooms)} rooms: {list(rooms.keys())}")
+        
+        # Debug: Print all connections
+        for room_id, room in rooms.items():
+            connections_str = ", ".join([f"{dir}->{target}" for dir, target in room.connections.items()])
+            print(f"DEBUG: Room {room_id} connections: {connections_str if connections_str else 'none'}")
         
         # Reset random seed to avoid affecting other random operations
         random.seed()
@@ -381,40 +419,34 @@ class MovementController:
             from_room_id = random.choice(list(connected))
             to_room_id = random.choice(list(unconnected))
             
-            # Pick a random direction
-            direction = random.choice(directions)
-            
-            # Check if the from_room already has a connection in this direction
             from_room = rooms[from_room_id]
-            if from_room.get_connection(direction) is None:
+            to_room = rooms[to_room_id]
+            
+            # Find an available direction on the from_room
+            available_directions = [d for d in directions if from_room.get_connection(d) is None]
+            
+            if available_directions:
+                # Use an available direction
+                direction = random.choice(available_directions)
+                opposite_dir = opposite_dirs[direction]
+                
                 # Create bidirectional connection
                 from_room.add_connection(direction, to_room_id)
-                to_room = rooms[to_room_id]
-                to_room.add_connection(opposite_dirs[direction], from_room_id)
+                to_room.add_connection(opposite_dir, from_room_id)
+                
+                print(f"DEBUG: Connected {from_room_id} --{direction}--> {to_room_id}")
+                print(f"DEBUG: Connected {to_room_id} --{opposite_dir}--> {from_room_id}")
                 
                 # Move to_room to connected set
                 connected.add(to_room_id)
                 unconnected.remove(to_room_id)
+            else:
+                # If from_room has no available directions, try a different connected room
+                # This iteration will pick a different from_room in the next loop
+                continue
         
-        # Add some additional random connections for more interesting exploration
-        for room_id in room_ids:
-            room = rooms[room_id]
-            available_dirs = [d for d in directions if room.get_connection(d) is None]
-            
-            # 30% chance to add an extra connection if directions are available
-            if available_dirs and random.random() < 0.3:
-                direction = random.choice(available_dirs)
-                # Try to connect to another room (avoid creating isolated loops)
-                potential_targets = [rid for rid in room_ids if rid != room_id]
-                if potential_targets:
-                    target_room_id = random.choice(potential_targets)
-                    target_room = rooms[target_room_id]
-                    opposite_dir = opposite_dirs[direction]
-                    
-                    # Only create connection if target room can accept it
-                    if target_room.get_connection(opposite_dir) is None:
-                        room.add_connection(direction, target_room_id)
-                        target_room.add_connection(opposite_dir, room_id)
+        # No extra connections - keep floors linear with minimal branching
+        # Each room will only have the connections created in the minimum spanning tree above
     
     def ensure_floor_generated(self, floor: int):
         """
@@ -427,10 +459,12 @@ class MovementController:
         start_room = self.get_room("start", floor)
         if start_room:
             # Floor already exists, check if it has a staircase somewhere
+            print(f"DEBUG: Floor {floor} already exists in database, loading existing rooms")
             if not self._floor_has_staircase(floor):
                 self._add_staircase_to_floor(floor)
             return
         
+        print(f"DEBUG: Floor {floor} does not exist, generating new floor")
         # Generate complete floor
         floor_rooms = self._generate_complete_floor(floor)
         
@@ -765,4 +799,7 @@ class MovementController:
         
         if not existing_connection:
             # Add the reverse connection
+            print(f"DEBUG: Adding bidirectional connection: {next_room_id} --{opposite_direction}--> {current_room_id}")
             next_room.add_connection(opposite_direction, current_room_id)
+        else:
+            print(f"DEBUG: Bidirectional connection already exists: {next_room_id} --{opposite_direction}--> {existing_connection}")

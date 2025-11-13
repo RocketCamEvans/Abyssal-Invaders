@@ -14,7 +14,7 @@ class PlayerMoveRequest(PlayerSessionRequest):
 # Combat endpoints
 class CombatAttackRequest(PlayerSessionRequest):
 	action: str
-	use_ally: bool
+	use_ally: bool = False  # Optional, only used when action is "attack"
 
 class CombatUseAllyRequest(PlayerSessionRequest):
 	ally_index: int

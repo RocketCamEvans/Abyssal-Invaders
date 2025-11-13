@@ -23,6 +23,7 @@ class Player:
         self.room_id = "start"
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
+        self.inventory = []  # List of item objects
         
         # Experience system
         self.experience = 0
@@ -34,6 +35,8 @@ class Player:
         self.current_ally = None  # Current ally for this battle (if any)
         self.ally_used = False  # Whether ally has been used in current battle
         self.battle_room = None  # Room data where battle is taking place
+        self.temp_attack_boost = 0  # Temporary attack boost from items
+        self.temp_defense_boost = 0  # Temporary defense boost from items
         
     def take_damage(self, damage: int) -> bool:
         """
@@ -75,6 +78,45 @@ class Player:
             ally: Ally object to add
         """
         self.allies.append(ally)
+    
+    def add_item(self, item):
+        """
+        Add an item to the player's inventory.
+        
+        Args:
+            item: Item object to add
+        """
+        self.inventory.append(item)
+    
+    def remove_item(self, item_id: str) -> Optional['Item']:
+        """
+        Remove an item from inventory by ID.
+        
+        Args:
+            item_id (str): ID of the item to remove
+            
+        Returns:
+            Optional[Item]: The removed item, or None if not found
+        """
+        for i, item in enumerate(self.inventory):
+            if item.item_id == item_id:
+                return self.inventory.pop(i)
+        return None
+    
+    def get_item(self, item_id: str) -> Optional['Item']:
+        """
+        Get an item from inventory by ID.
+        
+        Args:
+            item_id (str): ID of the item to get
+            
+        Returns:
+            Optional[Item]: The item, or None if not found
+        """
+        for item in self.inventory:
+            if item.item_id == item_id:
+                return item
+        return None
     
     def use_ally_attack(self, ally_index: int) -> Optional[int]:
         """
@@ -137,6 +179,10 @@ class Player:
         """
         End the current battle and reset battle state.
         """
+        self.attack_power -= self.temp_attack_boost
+        self.defense -= self.temp_defense_boost
+        self.temp_attack_boost = 0
+        self.temp_defense_boost = 0
         self.in_battle = False
         self.current_enemy = None
         self.battle_room = None
@@ -245,13 +291,16 @@ class Player:
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
             "allies": [ally.to_dict() for ally in self.allies],
+            "inventory": [item.to_dict() for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
             "ally_used": self.ally_used,
-            "battle_room": self.battle_room
+            "battle_room": self.battle_room,
+            "temp_attack_boost": self.temp_attack_boost,
+            "temp_defense_boost": self.temp_defense_boost
         }
     
     @classmethod
@@ -266,6 +315,7 @@ class Player:
             Player: Player object created from data
         """
         from .ally import Ally  # Import here to avoid circular imports
+        from .item import Item  # Import here to avoid circular imports
         
         player = cls(session_id=data["session_id"], name=data["name"])
         player.health = data["health"]
@@ -277,6 +327,7 @@ class Player:
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])
         player.allies = [Ally.from_dict(ally_data) for ally_data in data["allies"]]
+        player.inventory = [Item.from_dict(item_data) for item_data in data.get("inventory", [])]
         
         # Experience system (with defaults for backward compatibility)
         player.experience = data.get("experience", 0)
@@ -288,5 +339,7 @@ class Player:
         player.current_ally = data.get("current_ally", None)
         player.ally_used = data.get("ally_used", False)
         player.battle_room = data.get("battle_room", None)
+        player.temp_attack_boost = data.get("temp_attack_boost", 0)
+        player.temp_defense_boost = data.get("temp_defense_boost", 0)
         
         return player

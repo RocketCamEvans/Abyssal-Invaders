@@ -646,6 +646,12 @@ Keep it short and punchy."""
         Returns:
             Dict[str, Any]: Victory result information
         """
+        # Reset temporary boosts from items
+        player.attack_power -= player.temp_attack_boost
+        player.defense -= player.temp_defense_boost
+        player.temp_attack_boost = 0
+        player.temp_defense_boost = 0
+        
         # Award gold and experience
         gold_reward = enemy.get_gold_reward()
         exp_reward = enemy.exp_reward

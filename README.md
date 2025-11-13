@@ -6,10 +6,9 @@ A Python Flask-based dungeon crawler game with REST API endpoints. Players explo
 
 - **Session-based gameplay** - Each player has a unique session ID tracked via cookies
 - **Procedural dungeon generation** - Rooms are generated dynamically with random connections
-- **Turn-based combat system** - Strategic battles with attack/flee decisions
-- **AI-powered battle descriptions** - Immersive fantasy narrator descriptions using OpenAI
-- **Random ally encounters** - 8% chance to find allies in rooms for special attacks
-- **Flee mechanics** - Strategic risk/reward - lose half gold to escape battles
+- **Turn-based combat system** - Fight enemies with attack/flee options
+- **Inventory system** - Find and use items for healing, combat buffs, and damage
+- **Ally recruitment** - Find and recruit allies for one-time powerful attacks
 - **Progressive difficulty** - Enemies get stronger as you go deeper
 - **High score leaderboard** - Compete based on gold earned
 - **LLM-ready content generation** - Structured for AI-generated names and descriptions
@@ -68,18 +67,25 @@ The API will be available at `http://localhost:5000`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/player/attack` | **Turn-based combat** - Attack or flee from battle |
-| `POST` | `/api/combat/attack` | *(Legacy)* Attack an enemy |
-| `POST` | `/api/combat/flee` | *(Legacy)* Attempt to flee from combat |
+| `POST` | `/api/combat/attack` | Attack an enemy |
+| `POST` | `/api/combat/use_ally` | Use ally's attack |
+| `POST` | `/api/combat/flee` | Attempt to flee from combat |
+
+### Inventory System
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/inventory/view` | View player's inventory |
+| `POST` | `/api/inventory/use` | Use an item from inventory |
+| `POST` | `/api/inventory/discard` | Discard an item from inventory |
 
 ### Encounters & Scoring
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `POST` | `/api/encounter/ally` | Encounter a helpful ally |
 | `GET` | `/api/scores/highscores` | Get leaderboard |
 | `POST` | `/api/scores/submit` | Submit final score |
-
-**Note**: Allies are now encountered randomly when moving to rooms (8% chance) instead of through a dedicated endpoint.
 
 ### System
 
@@ -135,72 +141,51 @@ curl -X POST http://localhost:5000/api/player/move \
   }'
 ```
 
-### 3. Turn-Based Combat
+### 3. View Inventory
 
-When you encounter an enemy, the battle system starts automatically. Use the attack endpoint to take turns:
-
-**Attack the enemy:**
 ```bash
-curl -X POST http://localhost:5000/api/player/attack \
+curl -X POST http://localhost:5000/api/inventory/view \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "12345678-1234-1234-1234-123456789012",
-    "action": "attack"
+    "session_id": "12345678-1234-1234-1234-123456789012"
   }'
 ```
 
-**Use ally special attack (first turn only):**
-```bash
-curl -X POST http://localhost:5000/api/player/attack \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "12345678-1234-1234-1234-123456789012",
-    "action": "attack",
-    "use_ally": true
-  }'
-```
-
-**Flee from battle (lose half gold):**
-```bash
-curl -X POST http://localhost:5000/api/player/attack \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "12345678-1234-1234-1234-123456789012",
-    "action": "flee"
-  }'
-```
-
-**Combat Response:**
+Response:
 ```json
 {
   "error": false,
-  "message": "Attack executed",
+  "message": "Inventory retrieved",
   "data": {
-    "battle_log": [
+    "inventory": [
       {
-        "type": "ally_attack",
-        "attacker": "Hero McHeroface with Brave Scout",
-        "target": "Shadow Beast",
-        "damage": 23,
-        "description": "Brave Scout unleashes their special move, dealing 23 damage!"
-      },
-      {
-        "type": "enemy_attack",
-        "attacker": "Shadow Beast",
-        "target": "Hero McHeroface",
-        "damage": 8,
-        "description": "Shadow Beast attacks Hero McHeroface for 8 damage!"
+        "item_id": "abc123-...",
+        "name": "Health Potion",
+        "description": "Restores health when used",
+        "effect_type": "heal",
+        "effect_value": 30,
+        "usable_in_combat": true,
+        "rarity": "common"
       }
     ],
-    "battle_ended": false,
-    "player_health": 92,
-    "enemy_health": 12,
-    "ally_available": false
+    "inventory_size": 1,
+    "total_items": 1
   }
 }
 ```
 
-### 4. Get High Scores
+### 4. Use an Item
+
+```bash
+curl -X POST http://localhost:5000/api/inventory/use \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "12345678-1234-1234-1234-123456789012",
+    "item_id": "abc123-..."
+  }'
+```
+
+### 5. Get High Scores
 
 ```bash
 curl http://localhost:5000/api/scores/highscores
@@ -216,12 +201,41 @@ curl http://localhost:5000/api/scores/highscores
 - Moving to new rooms awards small amounts of exploration gold
 
 ### Combat
-- **Turn-based system** - Players must send attack commands to progress through battles
 - **30% base encounter chance** when entering a room (increases with floor level)
-- Use `/api/player/attack` with `"action": "attack"` to fight or `"action": "flee"` to escape
-- **Fleeing penalty** - Players lose half their current gold when fleeing battles
-- **AI-generated descriptions** - Each battle gets immersive fantasy narrator descriptions
+- Combat is automatic once initiated - player and enemy exchange attacks
+- Players can **flee** with 50-80% success rate (based on current health)
+- **Allies** can be used for powerful one-time attacks
+- **Items** can be used during combat for healing, buffs, or damage
 - Defeating enemies awards gold based on their difficulty
+
+### Inventory System
+- **65% chance to find items** when entering a new room (if no encounter occurs)
+- Items are **not found in previously visited rooms**
+- Items are automatically added to inventory upon finding
+- Players can carry unlimited items
+- Items can be used during or outside of combat (depending on item type)
+- Items are **consumed upon use** (single-use)
+- Players can discard unwanted items at any time
+
+#### Item Types
+
+**Healing Items:**
+- **Health Potion** (Common) - Restores 30 HP
+- **Greater Health Potion** (Uncommon) - Restores 60 HP
+
+**Combat Buffs:**
+- **Attack Elixir** (Uncommon) - Increases attack power by 15 for one battle
+- **Iron Skin Tonic** (Uncommon) - Increases defense by 10 for one battle
+
+**Offensive Items:**
+- **Explosive Bomb** (Rare) - Deals 40 direct damage to enemy
+- **Poison Vial** (Uncommon) - Deals 25 damage to enemy
+
+**Utility Items:**
+- **Scroll of Escape** (Rare) - Guarantees successful flee from combat
+- **Bag of Gold Coins** (Common) - Grants 50 gold immediately
+
+**Item Rarity:** Higher floors have increased chances of finding rare and uncommon items.
 
 ### Progression
 - **Gold** is the main scoring metric
@@ -230,11 +244,10 @@ curl http://localhost:5000/api/scores/highscores
 - **Health** regenerates slightly after some victories
 
 ### Allies
-- **Random encounters** - 8% chance to find an ally when entering a room
-- **Automatic usage** - First attack in battle uses ally's special move for bonus damage
-- **One-time use** - Each ally provides one powerful attack per battle
-- **Scaling power** - Ally strength scales with the current floor level
-- **Strategic advantage** - Can turn the tide of difficult battles
+- Found randomly during exploration
+- Each ally can perform one powerful attack
+- Ally strength scales with the current floor level
+- Strategic use of allies can turn difficult battles
 
 ## Project Structure
 
@@ -264,6 +277,9 @@ python -m pytest tests/
 
 # Run specific test file
 python -m unittest tests.test_routes
+
+# Run inventory system tests
+python -m unittest tests.test_inventory
 ```
 
 ### Configuration
@@ -312,12 +328,14 @@ def generate_enemy_content(self, floor: int, room: Optional[Room] = None) -> Dic
 
 ## Recent Updates
 
-### New: Turn-Based Combat System 🆕
-- **Turn-based battles** - Use `/api/player/attack` to control combat flow
-- **AI battle descriptions** - OpenAI generates immersive fantasy narrator text
-- **Strategic fleeing** - Lose half gold to escape, adding risk/reward decisions
-- **Ally overhaul** - Random room encounters (8%) with automatic first-turn usage
-- **Battle state tracking** - Persistent combat state between API calls
+### New: Inventory System
+- **Feature**: Added comprehensive inventory system with 8 different item types
+- **Item Finding**: 65% chance to find items when entering new rooms (no encounters)
+- **Item Usage**: Items can be used during combat or exploration depending on type
+- **Item Types**: Healing potions, combat buffs, offensive items, and utility items
+- **Rarity System**: Common, Uncommon, and Rare items with floor-based distribution
+- **API Endpoints**: `/api/inventory/view`, `/api/inventory/use`, `/api/inventory/discard`
+- **Testing**: Comprehensive unit tests in `tests/test_inventory.py`
 
 ### Fixed: Room ID Exponential Growth
 - **Issue**: Room IDs were growing exponentially (e.g., `floor_1_floor_1_floor_1_start_south_south`)
@@ -329,14 +347,10 @@ def generate_enemy_content(self, floor: int, room: Optional[Room] = None) -> Dic
 - **Solution**: Implemented bidirectional room connections when moving between rooms
 - **Result**: Players can now backtrack naturally through the dungeon
 
-### Testing the Updates
-Run the test scripts to see the features in action:
+### Testing the Fixes
+Run the demonstration script to see both fixes in action:
 ```bash
-# Test turn-based combat system
-python tests/test_turn_based_combat.py
-
-# Test backtracking and room generation
-python tests/test_backtracking.py
+python test_backtracking.py
 ```
 
 ## Contributing
