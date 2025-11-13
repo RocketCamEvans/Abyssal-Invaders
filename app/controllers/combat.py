@@ -7,6 +7,18 @@ from ..models import Player, Enemy, Room
 from ..utils import create_error_response, create_success_response
 from ..utils.helpers import calculate_damage_with_variance, format_combat_summary, roll_dice
 import random
+import os
+import sys
+
+# Add the utils directory to the path to import openai_client
+utils_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils')
+sys.path.insert(0, utils_dir)
+
+try:
+    from openai_client import create_openai_client
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 
 class CombatController:
@@ -18,7 +30,7 @@ class CombatController:
         """
         Initialize the combat controller.
         """
-        pass
+        self.openai_client = create_openai_client() if OPENAI_AVAILABLE else None
     
     def initiate_combat(self, player: Player, enemy: Enemy, room: Room) -> Tuple[Player, Enemy, Dict[str, Any]]:
         """
@@ -70,6 +82,238 @@ class CombatController:
         }
         
         return player, enemy, create_success_response(combat_result, "Combat completed")
+    
+    def start_battle(self, player: Player, enemy: Enemy, room: Room, ally_data: Optional[dict] = None) -> Dict[str, Any]:
+        """
+        Start a turn-based battle between player and enemy.
+        
+        Args:
+            player (Player): Player object
+            enemy (Enemy): Enemy object
+            room (Room): Room where battle takes place
+            ally_data (Optional[dict]): Ally data if present
+            
+        Returns:
+            Dict[str, Any]: Battle initiation result
+        """
+        if not player.is_alive():
+            return create_error_response("Player is already defeated!")
+        
+        # Set up battle state in player
+        player.start_battle(enemy.to_dict(), room.to_dict(), ally_data)
+        
+        # Generate AI battle description
+        battle_description = self._generate_ai_battle_description(player, enemy, room)
+        
+        return create_success_response({
+            "message": "Battle started!",
+            "description": battle_description,
+            "player_health": player.health,
+            "enemy_health": enemy.health,
+            "enemy_name": enemy.name,
+            "ally_available": ally_data is not None,
+            "ally_name": ally_data.get('name') if ally_data else None
+        }, "Battle initiated")
+    
+    def execute_attack(self, player: Player, use_ally: bool = False) -> Dict[str, Any]:
+        """
+        Execute a player attack in turn-based combat.
+        
+        Args:
+            player (Player): Player object
+            use_ally (bool): Whether to use ally special attack
+            
+        Returns:
+            Dict[str, Any]: Attack result
+        """
+        if not player.in_battle or not player.current_enemy:
+            return create_error_response("Player is not in battle!")
+        
+        # Create enemy object from stored data
+        enemy = Enemy.from_dict(player.current_enemy)
+        
+        battle_log = []
+        
+        # Player attack (with ally if requested)
+        if use_ally and player.current_ally and not player.ally_used:
+            damage = self._execute_ally_attack(player, enemy, battle_log)
+            player.ally_used = True
+        else:
+            damage = self._execute_player_attack(player, enemy, battle_log)
+        
+        # Check if enemy is defeated
+        if not enemy.is_alive():
+            reward = self._handle_enemy_defeat(player, enemy)
+            player.end_battle()
+            
+            return create_success_response({
+                "battle_log": battle_log,
+                "battle_ended": True,
+                "victory": True,
+                "reward": reward,
+                "player_health": player.health,
+                "enemy_health": enemy.health
+            }, "Enemy defeated!")
+        
+        # Enemy counterattack
+        self._execute_enemy_attack(player, enemy, battle_log)
+        
+        # Update stored enemy data
+        player.current_enemy = enemy.to_dict()
+        
+        # Check if player is defeated
+        if not player.is_alive():
+            player.end_battle()
+            
+            return create_success_response({
+                "battle_log": battle_log,
+                "battle_ended": True,
+                "victory": False,
+                "player_health": player.health,
+                "enemy_health": enemy.health
+            }, "Player defeated!")
+        
+        return create_success_response({
+            "battle_log": battle_log,
+            "battle_ended": False,
+            "player_health": player.health,
+            "enemy_health": enemy.health,
+            "ally_available": player.current_ally and not player.ally_used
+        }, "Attack executed")
+    
+    def execute_flee(self, player: Player) -> Dict[str, Any]:
+        """
+        Execute fleeing from battle.
+        
+        Args:
+            player (Player): Player object
+            
+        Returns:
+            Dict[str, Any]: Flee result
+        """
+        if not player.in_battle:
+            return create_error_response("Player is not in battle!")
+        
+        gold_lost = player.flee_battle()
+        
+        return create_success_response({
+            "message": f"You fled from battle and lost {gold_lost} gold!",
+            "gold_lost": gold_lost,
+            "current_gold": player.gold,
+            "battle_ended": True
+        }, "Fled from battle")
+    
+    def _generate_ai_battle_description(self, player: Player, enemy: Enemy, room: Room) -> str:
+        """
+        Generate AI-powered battle description.
+        
+        Args:
+            player (Player): Player object
+            enemy (Enemy): Enemy object
+            room (Room): Room object
+            
+        Returns:
+            str: Battle description
+        """
+        if self.openai_client:
+            try:
+                prompt = f"""You are a fantasy narrator with charm and wit. Describe the start of a battle in 2 sentences maximum.
+
+Player: {player.name} (Health: {player.health}, Attack: {player.attack_power}, Defense: {player.defense})
+Enemy: {enemy.name} - {enemy.description}
+Location: {room.name} - {room.description}
+
+Write a brief, atmospheric description of the encounter starting. Make it feel like a classic fantasy adventure with a touch of personality."""
+
+                description = self.openai_client.generate_completion(prompt, max_tokens=80, temperature=0.8)
+                if description:
+                    return description
+            except Exception as e:
+                print(f"OpenAI battle description failed: {e}")
+        
+        # Fallback description
+        return f"{player.name} faces {enemy.name} in the {room.name}. The battle is about to begin!"
+    
+    def _execute_ally_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
+        """
+        Execute ally special attack.
+        
+        Args:
+            player (Player): Player object
+            enemy (Enemy): Enemy object
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            int: Damage dealt
+        """
+        ally_data = player.current_ally
+        base_damage = player.attack_power
+        ally_bonus = ally_data.get('attack_power', 15)  # Allies give bonus damage
+        total_damage = base_damage + ally_bonus
+        
+        # Add some variance
+        damage = calculate_damage_with_variance(total_damage)
+        enemy.take_damage(damage)
+        
+        battle_log.append({
+            "type": "ally_attack",
+            "attacker": f"{player.name} with {ally_data['name']}",
+            "target": enemy.name,
+            "damage": damage,
+            "description": f"{ally_data['name']} unleashes their special move, dealing {damage} damage!"
+        })
+        
+        return damage
+    
+    def _execute_player_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
+        """
+        Execute regular player attack.
+        
+        Args:
+            player (Player): Player object
+            enemy (Enemy): Enemy object
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            int: Damage dealt
+        """
+        damage = calculate_damage_with_variance(player.attack_power)
+        enemy.take_damage(damage)
+        
+        battle_log.append({
+            "type": "player_attack",
+            "attacker": player.name,
+            "target": enemy.name,
+            "damage": damage,
+            "description": f"{player.name} attacks {enemy.name} for {damage} damage!"
+        })
+        
+        return damage
+    
+    def _execute_enemy_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
+        """
+        Execute enemy attack on player.
+        
+        Args:
+            player (Player): Player object
+            enemy (Enemy): Enemy object
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            int: Damage dealt
+        """
+        damage = calculate_damage_with_variance(enemy.attack_power)
+        player.take_damage(damage)
+        
+        battle_log.append({
+            "type": "enemy_attack",
+            "attacker": enemy.name,
+            "target": player.name,
+            "damage": damage,
+            "description": f"{enemy.name} attacks {player.name} for {damage} damage!"
+        })
+        
+        return damage
     
     def _execute_combat_round(self, player: Player, enemy: Enemy, round_number: int) -> Dict[str, Any]:
         """
