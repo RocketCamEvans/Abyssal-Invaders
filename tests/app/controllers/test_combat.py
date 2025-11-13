@@ -120,8 +120,11 @@ class TestCombatController:
         assert result["error"] is False
         assert result["data"]["message"] == "Battle started!"
         assert result["data"]["description"] == "Epic battle begins!"
-        assert result["data"]["player_health"] == self.player.health
-        assert result["data"]["enemy_health"] == self.enemy.health
+        assert result["data"]["player"]["health"] == f"{self.player.health}/{self.player.max_health}"
+        assert result["data"]["player"]["in_battle"] == self.player.in_battle
+        assert result["data"]["player"]["is_alive"] == self.player.is_alive()
+        assert result["data"]["enemy"] == self.enemy.to_dict()
+        assert result["data"]["ally"] is None
         assert self.player.in_battle is True
         assert self.player.current_enemy is not None
     
@@ -135,8 +138,8 @@ class TestCombatController:
             result = self.controller.start_battle(self.player, self.enemy, self.room, ally_data)
         
         assert result["error"] is False
-        assert result["data"]["ally_available"] is True
-        assert result["data"]["ally_name"] == "Test Ally"
+        assert result["data"]["ally"] == ally_data
+        assert result["data"]["player"]["in_battle"] is True
         assert self.player.current_ally == ally_data
     
     def test_execute_attack_not_in_battle(self):
@@ -172,7 +175,8 @@ class TestCombatController:
         assert result["error"] is False
         assert result["data"]["battle_ended"] is True
         assert result["data"]["victory"] is True
-        assert "reward" in result["data"]
+        assert result["data"]["gold_reward"] == 25
+        assert result["data"]["exp_reward"] == 30
         assert self.player.in_battle is False
     
     def test_execute_attack_with_ally(self):
