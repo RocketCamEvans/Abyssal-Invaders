@@ -2,7 +2,7 @@
 Flask application factory for the dungeon crawler game.
 """
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from pathlib import Path
 import os
 
@@ -17,8 +17,11 @@ def create_app(config_name: str = 'development') -> Flask:
     Returns:
         Flask: Configured Flask application
     """
-    # Create Flask app
-    app = Flask(__name__)
+    # Create Flask app with custom static folder
+    frontend_dir = Path(__file__).parent / 'frontend'
+    app = Flask(__name__, 
+                static_folder=str(frontend_dir),
+                static_url_path='/static')
     
     # Configure the app
     app.config.from_mapping(
@@ -35,6 +38,34 @@ def create_app(config_name: str = 'development') -> Flask:
     # Register blueprints/routes
     from . import routes
     app.register_blueprint(routes.bp)
+    
+    # Register frontend routes
+    _register_frontend_routes(app)
+    
+    # Register error handlers
+    _register_error_handlers(app)
+    
+    return app
+
+
+def _register_frontend_routes(app: Flask):
+    """
+    Register routes for serving the frontend.
+    
+    Args:
+        app (Flask): Flask application instance
+    """
+    frontend_dir = Path(__file__).parent / 'frontend'
+    
+    @app.route('/')
+    def index():
+        """Serve the main game interface."""
+        return send_from_directory(str(frontend_dir), 'index.html')
+    
+    @app.route('/static/<path:filename>')
+    def serve_static(filename):
+        """Serve static files (CSS, JS)."""
+        return send_from_directory(str(frontend_dir), filename)
     
     # Register error handlers
     _register_error_handlers(app)
