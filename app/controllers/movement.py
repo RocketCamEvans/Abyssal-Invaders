@@ -69,11 +69,10 @@ class MovementController:
         # Move player to the new room
         player.move_to_room(next_room_id)
         
-        # Mark room as visited
-        next_room.visit()
-        self._save_room(next_room)
+        # DON'T mark room as visited yet - let the route handler check for encounters first
+        # The room will be marked as visited in the route after encounter processing
         
-        # Save the current room as well (in case connections were updated)
+        # Save the current room (in case connections were updated)
         self._save_room(current_room)
         
         # Prepare response
@@ -87,6 +86,12 @@ class MovementController:
                 "room_id": player.room_id,
                 "health": f"{player.health}/{player.max_health}",
                 "gold": player.gold
+            },
+            # Add debug info
+            "debug": {
+                "room_was_new": not next_room.has_been_visited,
+                "encounter_chance": next_room.encounter_chance,
+                "has_staircase": next_room.has_staircase
             }
         }
         
@@ -196,8 +201,8 @@ class MovementController:
         from ..utils.helpers import calculate_encounter_chance
         room.set_encounter_chance(calculate_encounter_chance(floor))
         
-        # Randomly add staircase (5% chance, but not in starting room)
-        if room_id != "start" and random.random() < 0.05:
+        # Randomly add staircase (15% chance, but not in starting room)
+        if room_id != "start" and random.random() < 0.15:
             room.set_staircase(True)
         
         # Generate connections to other rooms
