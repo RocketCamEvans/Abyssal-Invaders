@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abyssal Invaders - Dungeon Crawler</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Header -->
+        <header class="game-header">
+            <h1>⚔️ ABYSSAL INVADERS ⚔️</h1>
+            <p class="subtitle">Delve into the depths of darkness</p>
+        </header>
+
+        <!-- Main Game Area -->
+        <div class="game-content">
+            <!-- Start Screen -->
+            <div id="start-screen" class="screen active">
+                <div class="start-content">
+                    <h2>Welcome, Adventurer!</h2>
+                    <p>Enter your name to begin your journey into the abyss...</p>
+                    <input type="text" id="player-name" placeholder="Enter your name" maxlength="30" />
+                    <button id="start-game-btn" class="btn btn-primary">Begin Adventure</button>
+                    <div class="start-info">
+                        <h3>How to Play:</h3>
+                        <ul>
+                            <li>🗺️ Navigate through procedurally generated dungeons</li>
+                            <li>⚔️ Fight fearsome enemies in turn-based combat</li>
+                            <li>🤝 Recruit allies to aid you in battle</li>
+                            <li>💰 Collect gold and gain experience</li>
+                            <li>🏆 Compete for the highest score</li>
+                            <li>📈 Descend deeper for greater challenges and rewards</li>
+                        </ul>
+                    </div>
+                    <button id="view-leaderboard-btn" class="btn btn-secondary">View Leaderboard</button>
+                </div>
+            </div>
+
+            <!-- Game Screen -->
+            <div id="game-screen" class="screen">
+                <div class="game-layout">
+                    <!-- Left Panel - Player Stats -->
+                    <div class="left-panel">
+                        <div class="player-info card">
+                            <h3>🧙 <span id="player-name-display">Adventurer</span></h3>
+                            <div class="stat-row">
+                                <span class="stat-label">❤️ Health:</span>
+                                <div class="health-bar-container">
+                                    <div id="health-bar" class="health-bar"></div>
+                                    <span id="health-text" class="health-text">100/100</span>
+                                </div>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">💰 Gold:</span>
+                                <span id="player-gold" class="stat-value">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">📊 Level:</span>
+                                <span id="player-level" class="stat-value">1</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">⬇️ Floor:</span>
+                                <span id="player-floor" class="stat-value">1</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">🤝 Allies:</span>
+                                <span id="player-allies" class="stat-value">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">🗡️ Attack:</span>
+                                <span id="player-attack" class="stat-value">10</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">🛡️ Defense:</span>
+                                <span id="player-defense" class="stat-value">5</span>
+                            </div>
+                        </div>
+
+                        <div class="allies-info card">
+                            <h3>🤝 Allies</h3>
+                            <div id="allies-list" class="allies-list">
+                                <p class="empty-state">No allies recruited yet</p>
+                            </div>
+                        </div>
+
+                        <div class="actions-panel card">
+                            <button id="view-stats-btn" class="btn btn-info btn-full">📊 View Stats</button>
+                            <button id="view-scores-btn" class="btn btn-info btn-full">🏆 Leaderboard</button>
+                            <button id="submit-score-btn" class="btn btn-warning btn-full">📤 Submit Score</button>
+                            <button id="new-game-btn" class="btn btn-danger btn-full">🔄 New Game</button>
+                        </div>
+                    </div>
+
+                    <!-- Center Panel - Room Display and Actions -->
+                    <div class="center-panel">
+                        <div class="room-display card">
+                            <h2 id="room-name" class="room-name">Starting Chamber</h2>
+                            <p id="room-description" class="room-description">You find yourself in a dimly lit chamber. The air is thick with mystery and danger.</p>
+                            
+                            <div id="room-features" class="room-features"></div>
+                            
+                            <div id="combat-area" class="combat-area hidden">
+                                <div class="enemy-info">
+                                    <h3 id="enemy-name" class="enemy-name">Enemy</h3>
+                                    <p id="enemy-description" class="enemy-description">A fearsome creature</p>
+                                    <div class="enemy-stats">
+                                        <div class="stat-row">
+                                            <span class="stat-label">❤️ Health:</span>
+                                            <div class="health-bar-container">
+                                                <div id="enemy-health-bar" class="health-bar enemy"></div>
+                                                <span id="enemy-health-text" class="health-text">50/50</span>
+                                            </div>
+                                        </div>
+                                        <div class="stat-row">
+                                            <span class="stat-label">⚔️ Attack:</span>
+                                            <span id="enemy-attack" class="stat-value">8</span>
+                                        </div>
+                                        <div class="stat-row">
+                                            <span class="stat-label">🛡️ Defense:</span>
+                                            <span id="enemy-defense" class="stat-value">3</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="combat-actions">
+                                    <button id="attack-btn" class="btn btn-danger">⚔️ Attack</button>
+                                    <button id="use-ally-btn" class="btn btn-success hidden">🤝 Use Ally</button>
+                                    <button id="flee-btn" class="btn btn-warning">🏃 Flee (Lose 50% Gold)</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="event-log card">
+                            <h3>📜 Event Log</h3>
+                            <div id="event-log" class="event-log-content">
+                                <p class="log-entry">Your adventure begins...</p>
+                            </div>
+                        </div>
+
+                        <div class="movement-controls card">
+                            <h3>🧭 Movement</h3>
+                            <div class="compass">
+                                <button id="move-north" class="btn btn-move move-north" disabled>⬆️ North</button>
+                                <div class="compass-middle">
+                                    <button id="move-west" class="btn btn-move move-west" disabled>⬅️ West</button>
+                                    <div class="compass-center">🧭</div>
+                                    <button id="move-east" class="btn btn-move move-east" disabled>➡️ East</button>
+                                </div>
+                                <button id="move-south" class="btn btn-move move-south" disabled>⬇️ South</button>
+                            </div>
+                            <button id="move-up" class="btn btn-special" disabled>🔼 Ascend Staircase</button>
+                        </div>
+                    </div>
+
+                    <!-- Right Panel - Leaderboard -->
+                    <div class="right-panel">
+                        <div class="leaderboard card">
+                            <h3>🏆 Leaderboard</h3>
+                            <div id="leaderboard-list" class="leaderboard-list">
+                                <p class="loading">Loading...</p>
+                            </div>
+                        </div>
+
+                        <div class="game-info card">
+                            <h3>ℹ️ Game Info</h3>
+                            <div class="info-content">
+                                <p><strong>Combat:</strong> Turn-based battles where you can attack or flee</p>
+                                <p><strong>Allies:</strong> Special helpers with powerful attacks (8% spawn chance)</p>
+                                <p><strong>Fleeing:</strong> Escape danger but lose 50% of your gold</p>
+                                <p><strong>Stairs:</strong> Descend to deeper, more dangerous floors</p>
+                                <p><strong>Death:</strong> Game over - submit your score!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="game-over-screen" class="screen">
+                <div class="game-over-content">
+                    <h2 class="game-over-title">💀 GAME OVER 💀</h2>
+                    <div id="final-stats" class="final-stats">
+                        <h3>Final Statistics</h3>
+                        <div class="stat-row">
+                            <span>Gold Collected:</span>
+                            <span id="final-gold" class="final-value">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Final Level:</span>
+                            <span id="final-level" class="final-value">1</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Deepest Floor:</span>
+                            <span id="final-floor" class="final-value">1</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Allies Recruited:</span>
+                            <span id="final-allies" class="final-value">0</span>
+                        </div>
+                    </div>
+                    <div class="game-over-actions">
+                        <button id="submit-final-score-btn" class="btn btn-primary">🏆 Submit Score</button>
+                        <button id="restart-game-btn" class="btn btn-secondary">🔄 Play Again</button>
+                        <button id="view-final-leaderboard-btn" class="btn btn-info">📊 View Leaderboard</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leaderboard Modal -->
+            <div id="leaderboard-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>🏆 High Scores</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div id="modal-leaderboard-list" class="modal-leaderboard-list">
+                        <p class="loading">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Modal -->
+            <div id="stats-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>📊 Player Statistics</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div id="modal-stats-content" class="modal-stats-content">
+                        <p class="loading">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="game-footer">
+            <p>Abyssal Invaders © 2025 | A Text-Based Dungeon Crawler Adventure</p>
+        </footer>
+    </div>
+
+    <script src="/static/game.js"></script>
+</body>
+</html>

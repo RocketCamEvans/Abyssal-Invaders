@@ -2,9 +2,10 @@
 REST API routes for the dungeon crawler game.
 """
 
-from flask import Blueprint, request, jsonify, current_app, session
+from flask import Blueprint, request, jsonify, current_app, session, send_from_directory
 from typing import Dict, Any, Optional
 import uuid
+from pathlib import Path
 
 from .models import Player, Enemy, Ally, Room, Item
 from .controllers import MovementController, CombatController, GenerationController, ScoringController, InventoryController
@@ -104,7 +105,11 @@ def create_player():
                 'health': f"{player.health}/{player.max_health}",
                 'gold': player.gold,
                 'floor': player.floor,
-                'room_id': player.room_id
+                'room_id': player.room_id,
+                'level': player.level,
+                'attack_power': player.attack_power,
+                'defense': player.defense,
+                'allies_count': len(player.allies)
             },
             'current_room': start_room.get_room_info()
         }

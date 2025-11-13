@@ -108,11 +108,13 @@ class CombatController:
         return create_success_response({
             "message": "Battle started!",
             "description": battle_description,
-            "player_health": player.health,
-            "enemy_health": enemy.health,
-            "enemy_name": enemy.name,
-            "ally_available": ally_data is not None,
-            "ally_name": ally_data.get('name') if ally_data else None
+            "player": {
+                "health": f"{player.health}/{player.max_health}",
+                "in_battle": player.in_battle,
+                "is_alive": player.is_alive()
+            },
+            "enemy": enemy.to_dict(),
+            "ally": ally_data
         }, "Battle initiated")
     
     def execute_attack(self, player: Player, use_ally: bool = False) -> Dict[str, Any]:
@@ -153,12 +155,19 @@ class CombatController:
             
             # Include room directions in victory response
             response_data = {
-                "battle_log": battle_log,
+                "messages": battle_log,
                 "battle_ended": True,
                 "victory": True,
-                "reward": reward,
-                "player_health": player.health,
-                "enemy_health": enemy.health
+                "gold_reward": reward.get('gold_earned', 0),
+                "exp_reward": reward.get('exp_earned', 0),
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "level": player.level,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive()
+                },
+                "enemy": enemy.to_dict()
             }
             
             # Add room direction info after victory
@@ -182,18 +191,30 @@ class CombatController:
             player.end_battle()
             
             return create_success_response({
-                "battle_log": battle_log,
+                "messages": battle_log,
                 "battle_ended": True,
                 "victory": False,
-                "player_health": player.health,
-                "enemy_health": enemy.health
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "level": player.level,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive()
+                },
+                "enemy": enemy.to_dict()
             }, "Player defeated!")
         
         return create_success_response({
-            "battle_log": battle_log,
+            "messages": battle_log,
             "battle_ended": False,
-            "player_health": player.health,
-            "enemy_health": enemy.health,
+            "player": {
+                "health": f"{player.health}/{player.max_health}",
+                "gold": player.gold,
+                "level": player.level,
+                "in_battle": player.in_battle,
+                "is_alive": player.is_alive()
+            },
+            "enemy": enemy.to_dict(),
             "ally_available": player.current_ally and not player.ally_used
         }, "Attack executed")
     
@@ -217,10 +238,17 @@ class CombatController:
         gold_lost = player.flee_battle()
         
         response_data = {
-            "message": f"You fled from battle and lost {gold_lost} gold!",
+            "messages": [f"You fled from battle and lost {gold_lost} gold!"],
             "gold_lost": gold_lost,
-            "current_gold": player.gold,
-            "battle_ended": True
+            "battle_ended": True,
+            "fled": True,
+            "player": {
+                "health": f"{player.health}/{player.max_health}",
+                "gold": player.gold,
+                "level": player.level,
+                "in_battle": player.in_battle,
+                "is_alive": player.is_alive()
+            }
         }
         
         # Add room direction info after fleeing
