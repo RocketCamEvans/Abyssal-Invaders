@@ -44,10 +44,16 @@ def create_player():
         "name": "Player Name" (optional)
     }
     """
+
     try:
-        data = request.get_json() or {}
-        player_name = sanitize_input(data.get('name', 'Unknown Adventurer'))
-        
+        from pydantic import ValidationError
+        from app.models.request_models import PlayerCreateRequest
+        try:
+            req = PlayerCreateRequest.parse_obj(request.get_json() or {})
+        except ValidationError as ve:
+            return create_error_response(f"Invalid input: {ve.errors()}", ve.json()), 400
+        player_name = sanitize_input(req.name)
+
         # Create new player
         player = Player(name=player_name)
         
@@ -91,11 +97,9 @@ def get_player_status():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
-            return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        session_id = req.session_id
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
         
@@ -203,13 +207,12 @@ def move_player():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'direction' not in data:
-            return create_error_response("Missing session_id or direction"), 400
-        
-        session_id = data['session_id']
-        direction = sanitize_input(data['direction'])
-        
+        from app.models.request_models import PlayerMoveRequest
+        req = PlayerMoveRequest.parse_obj(request.get_json() or {})
+        session_id = req.session_id
+        direction = req.direction
+        direction = sanitize_input(direction)
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -319,14 +322,15 @@ def player_attack():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'action' not in data:
-            return create_error_response("Missing required fields"), 400
-        
-        session_id = data['session_id']
-        action = data['action']
-        use_ally = data.get('use_ally', False)
-        
+        from app.models.request_models import CombatAttackRequest
+        req = CombatAttackRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.action:
+            return create_error_response("Missing session_id or action"), 400
+
+        session_id = req.session_id
+        action = req.action
+        use_ally = req.use_ally
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -373,13 +377,15 @@ def attack_enemy():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'enemy_data' not in data:
-            return create_error_response("Missing session_id or enemy_data"), 400
-        
-        session_id = data['session_id']
-        enemy_data = data['enemy_data']
-        
+        from app.models.request_models import CombatUseAllyRequest
+        req = CombatUseAllyRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.ally_index or not req.enemy_data:
+            return create_error_response("Missing required fields"), 400
+
+        session_id = req.session_id
+        ally_index = req.ally_index
+        enemy_data = req.enemy_data
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -423,13 +429,14 @@ def flee_combat():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'enemy_data' not in data:
+        from app.models.request_models import CombatFleeRequest
+        req = CombatFleeRequest.parse_obj(request.get_json() or {})
+        if not req.session_id or not req.enemy_data:
             return create_error_response("Missing session_id or enemy_data"), 400
-        
-        session_id = data['session_id']
-        enemy_data = data['enemy_data']
-        
+
+        session_id = req.session_id
+        enemy_data = req.enemy_data
+
         # Get player
         user_db = get_user_db()
         player_data = user_db.get_user(session_id)
@@ -479,11 +486,12 @@ def submit_score():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
@@ -514,11 +522,12 @@ def get_player_statistics():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
@@ -549,11 +558,12 @@ def delete_player():
     }
     """
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Delete player
         user_db = get_user_db()
@@ -667,11 +677,12 @@ def debug_staircases():
 def debug_room_info():
     """Debug endpoint to check room encounter and staircase status."""
     try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
             return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
+
+        session_id = req.session_id
         
         # Get player
         user_db = get_user_db()
