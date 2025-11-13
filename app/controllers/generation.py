@@ -6,6 +6,18 @@ from typing import Dict, Any, Optional, List
 from ..models import Enemy, Ally, Room
 from ..utils import create_error_response, create_success_response
 import random
+import os
+import sys
+
+# Add the utils directory to the path to import openai_client
+utils_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils')
+sys.path.insert(0, utils_dir)
+
+try:
+    from openai_client import OpenAIClient, create_openai_client, is_openai_configured
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 
 class GenerationController:
@@ -16,14 +28,30 @@ class GenerationController:
     integrate with an actual LLM service like OpenAI GPT, Anthropic Claude, etc.
     """
     
-    def __init__(self, llm_api_key: Optional[str] = None):
+    def __init__(self, llm_api_key: Optional[str] = None, use_openai: bool = True):
         """
         Initialize the generation controller.
         
         Args:
             llm_api_key (Optional[str]): API key for LLM service (not used in mock)
+            use_openai (bool): Whether to use OpenAI for generation (falls back to templates)
         """
         self.llm_api_key = llm_api_key
+        self.use_openai = use_openai and OPENAI_AVAILABLE
+        self.openai_client = None
+        
+        # Initialize OpenAI client if available and requested
+        if self.use_openai:
+            try:
+                self.openai_client = create_openai_client()
+                if not self.openai_client:
+                    print("Warning: OpenAI not configured properly")
+                    self.use_openai = False
+            except Exception as e:
+                print(f"Warning: Could not initialize OpenAI client: {e}")
+                self.use_openai = False
+        
+        # Load templates as fallback
         self.enemy_name_templates = self._load_enemy_name_templates()
         self.ally_name_templates = self._load_ally_name_templates()
         self.room_name_templates = self._load_room_name_templates()
@@ -40,9 +68,15 @@ class GenerationController:
         Returns:
             Dict[str, str]: Generated name and description
         """
-        # In a real implementation, this would call an LLM API
-        # For now, we'll use template-based generation
+        # Try OpenAI first if available
+        if self.use_openai and self.openai_client:
+            try:
+                room_desc = room.description if room else ""
+                return self.openai_client.generate_enemy_content(floor, room_desc)
+            except Exception as e:
+                print(f"OpenAI generation failed, falling back to templates: {e}")
         
+        # Fallback to template-based generation
         difficulty_modifier = self._get_difficulty_modifier(floor)
         room_context = self._get_room_context(room)
         
@@ -68,6 +102,15 @@ class GenerationController:
         Returns:
             Dict[str, str]: Generated name and description
         """
+        # Try OpenAI first if available
+        if self.use_openai and self.openai_client:
+            try:
+                room_desc = room.description if room else ""
+                return self.openai_client.generate_ally_content(floor, room_desc)
+            except Exception as e:
+                print(f"OpenAI generation failed, falling back to templates: {e}")
+        
+        # Fallback to template-based generation
         room_context = self._get_room_context(room)
         
         name = random.choice(self.ally_name_templates)
@@ -89,6 +132,14 @@ class GenerationController:
         Returns:
             Dict[str, str]: Generated name and description
         """
+        # Try OpenAI first if available
+        if self.use_openai and self.openai_client:
+            try:
+                return self.openai_client.generate_room_content(floor)
+            except Exception as e:
+                print(f"OpenAI generation failed, falling back to templates: {e}")
+        
+        # Fallback to template-based generation
         difficulty_modifier = self._get_difficulty_modifier(floor)
         
         # Select room names based on floor difficulty
