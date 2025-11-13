@@ -25,6 +25,10 @@ class Player:
         self.allies = []  # List of ally objects that can help in combat
         self.inventory = []  # List of item objects
         
+        # Experience system
+        self.experience = 0
+        self.level = 1
+        
         # Battle state tracking
         self.in_battle = False
         self.current_enemy = None  # Current enemy data (dict)
@@ -191,6 +195,77 @@ class Player:
         self.end_battle()
         return gold_lost
     
+    def gain_experience(self, exp: int) -> bool:
+        """
+        Add experience and check for level up.
+        
+        Args:
+            exp (int): Experience points to add
+            
+        Returns:
+            bool: True if player leveled up, False otherwise
+        """
+        self.experience += exp
+        exp_needed = self._calculate_exp_for_level(self.level + 1)
+        
+        if self.experience >= exp_needed:
+            self._level_up()
+            return True
+        return False
+    
+    def _calculate_exp_for_level(self, level: int) -> int:
+        """
+        Calculate experience required for a given level.
+        
+        Args:
+            level (int): Target level
+            
+        Returns:
+            int: Experience required
+        """
+        # Simple exponential curve: level^2 * 100
+        return (level - 1) ** 2 * 100
+    
+    def _level_up(self):
+        """
+        Level up the player and increase stats slightly.
+        """
+        self.level += 1
+        
+        # Small stat increases per level
+        old_max_health = self.max_health
+        self.max_health += 5  # +5 max health per level
+        self.attack_power += 2  # +2 attack per level
+        self.defense += 1  # +1 defense per level
+        
+        # Heal player to full on level up
+        health_increase = self.max_health - old_max_health
+        self.health += health_increase
+        if self.health > self.max_health:
+            self.health = self.max_health
+    
+    def get_current_level_progress(self) -> dict:
+        """
+        Get information about current level progress.
+        
+        Returns:
+            dict: Level progress information
+        """
+        current_exp = self.experience
+        current_level_exp = self._calculate_exp_for_level(self.level)
+        next_level_exp = self._calculate_exp_for_level(self.level + 1)
+        
+        progress = current_exp - current_level_exp
+        needed = next_level_exp - current_level_exp
+        
+        return {
+            'level': self.level,
+            'experience': self.experience,
+            'progress': progress,
+            'needed_for_next': needed,
+            'progress_percentage': round((progress / needed) * 100, 1) if needed > 0 else 100
+        }
+    
     def to_dict(self) -> dict:
         """
         Convert player to dictionary for JSON serialization.
@@ -211,6 +286,8 @@ class Player:
             "visited_rooms": list(self.visited_rooms),
             "allies": [ally.to_dict() for ally in self.allies],
             "inventory": [item.to_dict() for item in self.inventory],
+            "experience": self.experience,
+            "level": self.level,
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
@@ -243,6 +320,10 @@ class Player:
         player.visited_rooms = set(data["visited_rooms"])
         player.allies = [Ally.from_dict(ally_data) for ally_data in data["allies"]]
         player.inventory = [Item.from_dict(item_data) for item_data in data.get("inventory", [])]
+        
+        # Experience system (with defaults for backward compatibility)
+        player.experience = data.get("experience", 0)
+        player.level = data.get("level", 1)
         
         # Battle state (with defaults for backward compatibility)
         player.in_battle = data.get("in_battle", False)
