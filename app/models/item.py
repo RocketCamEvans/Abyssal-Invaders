@@ -14,64 +14,64 @@ class Item:
     # Item types and their effects
     ITEM_TYPES = {
         "health_potion": {
-            "name": "Health Potion",
-            "description": "Restores health when used",
+            "name": "Emergency Coffee",
+            "description": "A steaming cup of extra-strong office coffee. Restores 30 HP.",
             "effect_type": "heal",
             "effect_value": 30,
             "usable_in_combat": True,
             "rarity": "common"
         },
         "greater_health_potion": {
-            "name": "Greater Health Potion",
-            "description": "Restores a large amount of health",
+            "name": "Energy Drink",
+            "description": "An oversized can of caffeinated chaos. Restores 60 HP.",
             "effect_type": "heal",
             "effect_value": 60,
             "usable_in_combat": True,
             "rarity": "uncommon"
         },
         "attack_boost": {
-            "name": "Attack Elixir",
-            "description": "Temporarily increases attack power for one battle",
+            "name": "Motivational Poster",
+            "description": "An inspiring poster from HR. Increases attack by 15 for this battle.",
             "effect_type": "attack_boost",
             "effect_value": 15,
             "usable_in_combat": True,
             "rarity": "uncommon"
         },
         "defense_boost": {
-            "name": "Iron Skin Tonic",
-            "description": "Temporarily increases defense for one battle",
+            "name": "Safety Manual",
+            "description": "A thick workplace safety handbook. Increases defense by 10 for this battle.",
             "effect_type": "defense_boost",
             "effect_value": 10,
             "usable_in_combat": True,
             "rarity": "uncommon"
         },
         "damage_bomb": {
-            "name": "Explosive Bomb",
-            "description": "Deals direct damage to enemy",
+            "name": "Exploding Printer Cartridge",
+            "description": "A volatile ink cartridge. Deals 40 damage to enemy.",
             "effect_type": "damage",
             "effect_value": 40,
             "usable_in_combat": True,
             "rarity": "rare"
         },
         "poison_vial": {
-            "name": "Poison Vial",
-            "description": "Deals damage over time to enemy",
+            "name": "Expired Vending Machine Soda",
+            "description": "Suspiciously fizzy. Deals 25 damage to enemy.",
             "effect_type": "damage",
             "effect_value": 25,
             "usable_in_combat": True,
             "rarity": "uncommon"
         },
         "escape_scroll": {
-            "name": "Scroll of Escape",
-            "description": "Guarantees successful flee from combat",
+            "name": "Emergency Exit Map",
+            "description": "A laminated evacuation route. Guarantees successful flee from combat.",
             "effect_type": "guaranteed_flee",
             "effect_value": 0,
             "usable_in_combat": True,
             "rarity": "rare"
         },
         "gold_coin_bag": {
-            "name": "Bag of Gold Coins",
-            "description": "Contains extra gold",
+            "name": "Petty Cash Envelope",
+            "description": "Contains bonus office funds. Grants 50 gold.",
             "effect_type": "gold",
             "effect_value": 50,
             "usable_in_combat": False,

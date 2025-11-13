@@ -109,7 +109,8 @@ def create_player():
                 'level': player.level,
                 'attack_power': player.attack_power,
                 'defense': player.defense,
-                'allies_count': len(player.allies)
+                'allies_count': len(player.allies),
+                'inventory': [item.get_item_info() for item in player.inventory]
             },
             'current_room': start_room.get_room_info()
         }

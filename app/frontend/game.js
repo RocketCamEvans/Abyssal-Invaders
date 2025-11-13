@@ -63,6 +63,7 @@ function initializeElements() {
         enemyDefense: document.getElementById('enemy-defense'),
         attackBtn: document.getElementById('attack-btn'),
         useAllyBtn: document.getElementById('use-ally-btn'),
+        useItemBtn: document.getElementById('use-item-btn'),
         fleeBtn: document.getElementById('flee-btn'),
         
         // Event log
@@ -84,6 +85,9 @@ function initializeElements() {
         // Allies
         alliesList: document.getElementById('allies-list'),
         
+        // Inventory
+        inventoryList: document.getElementById('inventory-list'),
+        
         // Leaderboard
         leaderboardList: document.getElementById('leaderboard-list'),
         
@@ -99,8 +103,10 @@ function initializeElements() {
         // Modals
         leaderboardModal: document.getElementById('leaderboard-modal'),
         statsModal: document.getElementById('stats-modal'),
+        itemModal: document.getElementById('item-modal'),
         modalLeaderboardList: document.getElementById('modal-leaderboard-list'),
-        modalStatsContent: document.getElementById('modal-stats-content')
+        modalStatsContent: document.getElementById('modal-stats-content'),
+        modalItemList: document.getElementById('modal-item-list')
     };
 }
 
@@ -122,6 +128,7 @@ function attachEventListeners() {
     // Combat
     elements.attackBtn.addEventListener('click', () => performCombatAction('attack', false));
     elements.useAllyBtn.addEventListener('click', () => performCombatAction('attack', true));
+    elements.useItemBtn.addEventListener('click', () => showItemModal());
     elements.fleeBtn.addEventListener('click', () => performCombatAction('flee', false));
     
     // Actions
@@ -203,6 +210,12 @@ async function startNewGame() {
     if (!gameState.player.level) gameState.player.level = 1;
     if (!gameState.player.attack_power) gameState.player.attack_power = 10;
     if (!gameState.player.defense) gameState.player.defense = 5;
+    if (!gameState.player.inventory) gameState.player.inventory = [];
+    
+    // Load inventory from API if provided
+    if (result.data.player.inventory) {
+        gameState.player.inventory = result.data.player.inventory;
+    }
     
     showScreen('game-screen');
     updatePlayerDisplay();
@@ -237,6 +250,9 @@ function updatePlayerDisplay() {
     
     // Update allies list
     updateAlliesList();
+    
+    // Update inventory display
+    updateInventoryDisplay();
 }
 
 // Update allies list
@@ -251,6 +267,125 @@ function updateAlliesList() {
     // Note: The API doesn't return full ally details in player object
     // This is a placeholder - in a real scenario, you'd fetch this data
     alliesList.innerHTML = `<p class="ally-item">You have ${gameState.player.allies_count} ally(ies) ready to assist you in battle!</p>`;
+}
+
+// Update inventory display
+function updateInventoryDisplay() {
+    const inventoryList = elements.inventoryList;
+    
+    if (!gameState.player || !gameState.player.inventory || gameState.player.inventory.length === 0) {
+        inventoryList.innerHTML = '<p class="empty-state">No items yet</p>';
+        return;
+    }
+    
+    inventoryList.innerHTML = gameState.player.inventory.map(item => {
+        const rarityEmoji = {
+            'common': '⚪',
+            'uncommon': '🟢',
+            'rare': '🔵',
+            'epic': '🟣',
+            'legendary': '🟡'
+        };
+        
+        return `
+            <div class="item-entry" title="${item.description || item.name}">
+                <span class="item-icon">${rarityEmoji[item.rarity] || '⚪'}</span>
+                <span class="item-name">${item.name}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+// Show item selection modal
+function showItemModal() {
+    if (!gameState.player || !gameState.player.inventory || gameState.player.inventory.length === 0) {
+        addLogEntry('No items to use!', 'danger');
+        return;
+    }
+    
+    elements.itemModal.classList.add('active');
+    
+    const itemList = elements.modalItemList;
+    itemList.innerHTML = gameState.player.inventory.map(item => {
+        const rarityEmoji = {
+            'common': '⚪',
+            'uncommon': '🟢',
+            'rare': '🔵',
+            'epic': '🟣',
+            'legendary': '🟡'
+        };
+        
+        return `
+            <div class="item-card" data-item-id="${item.id}">
+                <div class="item-header">
+                    <span class="item-icon">${rarityEmoji[item.rarity] || '⚪'}</span>
+                    <span class="item-title">${item.name}</span>
+                </div>
+                <div class="item-description">${item.description || 'A useful item'}</div>
+                <div class="item-stats">
+                    <span class="item-type">${item.type}</span>
+                    <span class="item-value">Value: ${item.value || 0}</span>
+                </div>
+                <button class="btn btn-primary btn-use-item" data-item-id="${item.id}">Use Item</button>
+            </div>
+        `;
+    }).join('');
+    
+    // Attach click handlers to use buttons
+    itemList.querySelectorAll('.btn-use-item').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const itemId = e.target.getAttribute('data-item-id');
+            useItem(itemId);
+        });
+    });
+}
+
+// Use an item
+async function useItem(itemId) {
+    elements.itemModal.classList.remove('active');
+    
+    addLogEntry('Using item...', 'info');
+    
+    const result = await apiRequest('/inventory/use', 'POST', {
+        session_id: gameState.sessionId,
+        item_id: itemId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Failed to use item: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update player stats from response
+    if (result.data) {
+        addLogEntry(result.data.message || 'Item used successfully!', 'success');
+        
+        // Update player HP/stats if returned
+        if (result.data.player_hp !== undefined) {
+            const maxHp = parseInt(gameState.player.health.split('/')[1]);
+            gameState.player.health = `${result.data.player_hp}/${maxHp}`;
+        }
+        if (result.data.player_attack !== undefined) {
+            gameState.player.attack_power = result.data.player_attack;
+        }
+        if (result.data.player_defense !== undefined) {
+            gameState.player.defense = result.data.player_defense;
+        }
+        
+        // Remove item from local inventory
+        if (gameState.player.inventory) {
+            gameState.player.inventory = gameState.player.inventory.filter(item => item.id !== itemId);
+        }
+        
+        updatePlayerDisplay();
+        updateInventoryDisplay();
+        
+        // If enemy was affected, update enemy display
+        if (result.data.enemy_hp !== undefined && gameState.currentEnemy) {
+            gameState.currentEnemy.health = result.data.enemy_hp;
+            showCombatArea();
+        }
+    }
 }
 
 // Update room display
@@ -335,6 +470,19 @@ async function movePlayer(direction) {
         addLogEntry(`💰 Found ${result.data.exploration_gold} gold!`, 'success');
     }
     
+    // Handle item find
+    if (result.data.item_found && result.data.item_result) {
+        const itemData = result.data.item_result;
+        addLogEntry(`🎒 ${itemData.message}`, 'success');
+        
+        // Add item to player's inventory in gameState
+        if (!gameState.player.inventory) {
+            gameState.player.inventory = [];
+        }
+        gameState.player.inventory.push(itemData.item);
+        updateInventoryDisplay();
+    }
+    
     // Handle ally encounter
     if (result.data.ally_encountered && result.data.ally_result) {
         const ally = result.data.ally_result;
@@ -401,6 +549,13 @@ function showCombatArea() {
         elements.useAllyBtn.classList.remove('hidden');
     } else {
         elements.useAllyBtn.classList.add('hidden');
+    }
+    
+    // Show/hide item button based on inventory
+    if (gameState.player && gameState.player.inventory && gameState.player.inventory.length > 0) {
+        elements.useItemBtn.classList.remove('hidden');
+    } else {
+        elements.useItemBtn.classList.add('hidden');
     }
 }
 

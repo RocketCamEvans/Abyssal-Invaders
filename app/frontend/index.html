@@ -85,6 +85,13 @@
                             </div>
                         </div>
 
+                        <div class="inventory-info card">
+                            <h3>🎒 Inventory</h3>
+                            <div id="inventory-list" class="inventory-list">
+                                <p class="empty-state">No items yet</p>
+                            </div>
+                        </div>
+
                         <div class="actions-panel card">
                             <button id="view-stats-btn" class="btn btn-info btn-full">📊 View Stats</button>
                             <button id="view-scores-btn" class="btn btn-info btn-full">🏆 Leaderboard</button>
@@ -127,6 +134,7 @@
                                 <div class="combat-actions">
                                     <button id="attack-btn" class="btn btn-danger">⚔️ Attack</button>
                                     <button id="use-ally-btn" class="btn btn-success hidden">🤝 Use Ally</button>
+                                    <button id="use-item-btn" class="btn btn-info hidden">🎒 Use Item</button>
                                     <button id="flee-btn" class="btn btn-warning">🏃 Flee (Lose 50% Gold)</button>
                                 </div>
                             </div>
@@ -230,6 +238,19 @@
                     </div>
                     <div id="modal-stats-content" class="modal-stats-content">
                         <p class="loading">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Item Selection Modal -->
+            <div id="item-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>🎒 Use Item</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div id="modal-item-list" class="modal-item-list">
+                        <p class="empty-state">No items available</p>
                     </div>
                 </div>
             </div>
