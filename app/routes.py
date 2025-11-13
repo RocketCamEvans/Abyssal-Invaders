@@ -59,6 +59,10 @@ def create_player():
         
         # Initialize starting room
         controllers = get_controllers()
+        
+        # Set the session for session-specific room management
+        controllers['movement'].set_session(player.session_id)
+        
         start_room = controllers['movement'].initialize_player_room(player)
         
         # Save player to database
@@ -225,6 +229,10 @@ def move_player():
         
         # Attempt movement
         controllers = get_controllers()
+        
+        # Set the session for session-specific room management
+        controllers['movement'].set_session(session_id)
+        
         success, movement_result = controllers['movement'].move_player(player, direction)
         
         if not success:
