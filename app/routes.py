@@ -173,14 +173,33 @@ def move_player():
         new_room = controllers['movement'].get_room(player.room_id, player.floor)
         encounter_occurred = False
         encounter_result = None
+        ally_encountered = False
+        ally_result = None
         
+        # Check for ally first (if room has one)
+        ally_data = None
+        if new_room and new_room.has_ally():
+            ally_data = new_room.take_ally()  # Remove ally from room after taking
+            ally_encountered = True
+            ally_result = {
+                'ally_found': True,
+                'ally_name': ally_data['name'],
+                'ally_description': ally_data['description'],
+                'message': f"You encountered {ally_data['name']}! They will assist you in your next battle."
+            }
+            # Store ally for future battles - it will be used automatically in the next combat
+        
+        # Check for enemy encounter
         if new_room and controllers['combat'].check_encounter_chance(new_room):
             # Generate enemy for encounter
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
             
-            # Initiate combat
-            player, enemy, combat_result = controllers['combat'].initiate_combat(player, enemy, new_room)
+            # Use ally data if we just found one
+            ally_for_battle = ally_data if ally_encountered else None
+            
+            # Start turn-based battle
+            combat_result = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
             encounter_occurred = True
             encounter_result = combat_result
         
@@ -201,6 +220,7 @@ def move_player():
         response_data = movement_result['data']
         response_data['exploration_gold'] = exploration_gold
         response_data['encounter_occurred'] = encounter_occurred
+        response_data['ally_encountered'] = ally_encountered
         
         # Add more detailed debug info
         if new_room:
@@ -209,11 +229,69 @@ def move_player():
         
         if encounter_occurred:
             response_data['encounter_result'] = encounter_result
+            
+        if ally_encountered:
+            response_data['ally_result'] = ally_result
         
         return create_success_response(response_data, "Movement completed")
         
     except Exception as e:
         return create_error_response(f"Error during movement: {str(e)}"), 500
+
+
+@bp.route('/player/attack', methods=['POST'])
+def player_attack():
+    """
+    Execute a turn-based attack in combat.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "action": "attack" | "flee",
+        "use_ally": false (optional, for ally special attack)
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'action' not in data:
+            return create_error_response("Missing required fields"), 400
+        
+        session_id = data['session_id']
+        action = data['action']
+        use_ally = data.get('use_ally', False)
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        if not player.is_alive():
+            return create_error_response("Cannot act - player is not alive"), 400
+        
+        if not player.in_battle:
+            return create_error_response("Player is not in battle"), 400
+        
+        controllers = get_controllers()
+        
+        if action == "attack":
+            # Execute attack
+            attack_result = controllers['combat'].execute_attack(player, use_ally)
+        elif action == "flee":
+            # Execute flee
+            attack_result = controllers['combat'].execute_flee(player)
+        else:
+            return create_error_response("Invalid action. Use 'attack' or 'flee'"), 400
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        return attack_result
+        
+    except Exception as e:
+        return create_error_response(f"Error during combat action: {str(e)}"), 500
 
 
 @bp.route('/combat/attack', methods=['POST'])
@@ -264,50 +342,6 @@ def attack_enemy():
         
     except Exception as e:
         return create_error_response(f"Error during combat: {str(e)}"), 500
-
-
-@bp.route('/combat/use_ally', methods=['POST'])
-def use_ally_attack():
-    """
-    Use an ally's attack in combat.
-    
-    Expected JSON:
-    {
-        "session_id": "player-session-id",
-        "ally_index": 0,
-        "enemy_data": {...enemy object...}
-    }
-    """
-    try:
-        data = request.get_json()
-        if not data or 'session_id' not in data or 'ally_index' not in data or 'enemy_data' not in data:
-            return create_error_response("Missing required fields"), 400
-        
-        session_id = data['session_id']
-        ally_index = data['ally_index']
-        enemy_data = data['enemy_data']
-        
-        # Get player
-        user_db = get_user_db()
-        player_data = user_db.get_user(session_id)
-        if not player_data:
-            return create_error_response("Player session not found"), 404
-        
-        player = Player.from_dict(player_data)
-        enemy = Enemy.from_dict(enemy_data)
-        
-        # Use ally attack
-        controllers = get_controllers()
-        success, result = controllers['combat'].use_ally_in_combat(player, ally_index, enemy)
-        
-        if success:
-            # Save updated player state
-            user_db.save_user(session_id, player.to_dict())
-        
-        return result
-        
-    except Exception as e:
-        return create_error_response(f"Error using ally: {str(e)}"), 500
 
 
 @bp.route('/combat/flee', methods=['POST'])
@@ -435,57 +469,6 @@ def get_player_statistics():
         
     except Exception as e:
         return create_error_response(f"Error retrieving statistics: {str(e)}"), 500
-
-
-@bp.route('/encounter/ally', methods=['POST'])
-def encounter_ally():
-    """
-    Encounter a helpful ally.
-    
-    Expected JSON:
-    {
-        "session_id": "player-session-id"
-    }
-    """
-    try:
-        data = request.get_json()
-        if not data or 'session_id' not in data:
-            return create_error_response("Missing session_id"), 400
-        
-        session_id = data['session_id']
-        
-        # Get player
-        user_db = get_user_db()
-        player_data = user_db.get_user(session_id)
-        if not player_data:
-            return create_error_response("Player session not found"), 404
-        
-        player = Player.from_dict(player_data)
-        
-        # Get current room
-        controllers = get_controllers()
-        current_room = controllers['movement'].get_room(player.room_id, player.floor)
-        
-        # Generate ally
-        ally_content = controllers['generation'].generate_ally_content(player.floor, current_room)
-        ally = Ally.create_random_ally(player.floor, ally_content['name'], ally_content['description'])
-        
-        # Add ally to player
-        player.add_ally(ally)
-        
-        # Save updated player state
-        user_db.save_user(session_id, player.to_dict())
-        
-        response_data = {
-            'ally': ally.get_ally_info(),
-            'total_allies': len(player.allies),
-            'message': f"{ally.name} joins your cause!"
-        }
-        
-        return create_success_response(response_data, f"You encountered an ally: {ally.name}")
-        
-    except Exception as e:
-        return create_error_response(f"Error encountering ally: {str(e)}"), 500
 
 
 @bp.route('/player/delete', methods=['POST'])

@@ -118,7 +118,7 @@ class MovementController:
         # Get or create starting room for new floor
         start_room = self.get_room("start", player.floor)
         if not start_room:
-            start_room = self._generate_starting_room(player.floor)
+            start_room = self._generate_start_room(player.floor)
             self._save_room(start_room)
         
         response_data = {
@@ -205,12 +205,43 @@ class MovementController:
         if room_id != "start" and random.random() < 0.15:
             room.set_staircase(True)
         
+        # Randomly add ally (8% chance, but not in starting room)
+        if room_id != "start" and random.random() < 0.08:
+            ally_data = self._generate_room_ally(floor)
+            room.set_ally(ally_data)
+        
         # Generate connections to other rooms
         self._generate_room_connections(room)
         
         return room
     
-    def _generate_starting_room(self, floor: int) -> Room:
+    def _generate_room_ally(self, floor: int) -> Dict[str, Any]:
+        """
+        Generate ally data for a room.
+        
+        Args:
+            floor (int): Floor number for scaling
+            
+        Returns:
+            Dict[str, Any]: Ally data
+        """
+        # Import here to avoid circular imports
+        from .generation import GenerationController
+        
+        generation_controller = GenerationController()
+        ally_content = generation_controller.generate_ally_content(floor)
+        
+        # Create ally data with stats scaled to floor
+        ally_data = {
+            'name': ally_content['name'],
+            'description': ally_content['description'],
+            'attack_power': 10 + (floor * 2),  # Scales with floor
+            'floor': floor
+        }
+        
+        return ally_data
+    
+    def _generate_start_room(self, floor: int) -> Room:
         """
         Generate the starting room for a floor.
         
@@ -287,7 +318,7 @@ class MovementController:
         """
         start_room = self.get_room("start", player.floor)
         if not start_room:
-            start_room = self._generate_starting_room(player.floor)
+            start_room = self._generate_start_room(player.floor)
             self._save_room(start_room)
         
         return start_room
