@@ -23,6 +23,7 @@ class Player:
         self.room_id = "start"
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
+        self.inventory = []  # List of item objects
         
         # Battle state tracking
         self.in_battle = False
@@ -71,6 +72,45 @@ class Player:
             ally: Ally object to add
         """
         self.allies.append(ally)
+    
+    def add_item(self, item):
+        """
+        Add an item to the player's inventory.
+        
+        Args:
+            item: Item object to add
+        """
+        self.inventory.append(item)
+    
+    def remove_item(self, item_id: str) -> Optional['Item']:
+        """
+        Remove an item from inventory by ID.
+        
+        Args:
+            item_id (str): ID of the item to remove
+            
+        Returns:
+            Optional[Item]: The removed item, or None if not found
+        """
+        for i, item in enumerate(self.inventory):
+            if item.item_id == item_id:
+                return self.inventory.pop(i)
+        return None
+    
+    def get_item(self, item_id: str) -> Optional['Item']:
+        """
+        Get an item from inventory by ID.
+        
+        Args:
+            item_id (str): ID of the item to get
+            
+        Returns:
+            Optional[Item]: The item, or None if not found
+        """
+        for item in self.inventory:
+            if item.item_id == item_id:
+                return item
+        return None
     
     def use_ally_attack(self, ally_index: int) -> Optional[int]:
         """
@@ -170,6 +210,7 @@ class Player:
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
             "allies": [ally.to_dict() for ally in self.allies],
+            "inventory": [item.to_dict() for item in self.inventory],
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
@@ -189,6 +230,7 @@ class Player:
             Player: Player object created from data
         """
         from .ally import Ally  # Import here to avoid circular imports
+        from .item import Item  # Import here to avoid circular imports
         
         player = cls(session_id=data["session_id"], name=data["name"])
         player.health = data["health"]
@@ -200,6 +242,7 @@ class Player:
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])
         player.allies = [Ally.from_dict(ally_data) for ally_data in data["allies"]]
+        player.inventory = [Item.from_dict(item_data) for item_data in data.get("inventory", [])]
         
         # Battle state (with defaults for backward compatibility)
         player.in_battle = data.get("in_battle", False)
