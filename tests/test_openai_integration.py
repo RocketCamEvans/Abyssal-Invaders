@@ -6,10 +6,15 @@ Test script to verify OpenAI integration with the dungeon crawler game.
 import sys
 import os
 
-# Add the current directory to the Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to the Python path to access utils
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
-from openai_request import OpenAIClient, test_openai_connection
+try:
+    from utils.openai_client import OpenAIClient, create_openai_client, is_openai_configured
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 
 def main():
@@ -19,24 +24,28 @@ def main():
     print("🎮 Testing OpenAI Integration for Abyssal Invaders")
     print("=" * 50)
     
+    if not OPENAI_AVAILABLE:
+        print("❌ OpenAI client not available!")
+        print("Please install the openai library: pip install openai")
+        return
+    
     # Check if API key is set
-    api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key or api_key == 'sk-your_actual_openai_api_key_here':
+    if not is_openai_configured():
         print("❌ OpenAI API key not set!")
         print("Please set your OPENAI_API_KEY in the .env file")
         print("Get your API key from: https://platform.openai.com/api-keys")
         return
     
     # Test connection
-    if not test_openai_connection():
-        print("❌ Could not connect to OpenAI API")
+    client = create_openai_client()
+    if not client:
+        print("❌ Could not create OpenAI client")
         return
     
+    print("✅ OpenAI client initialized successfully")
     print("\n🎲 Testing game content generation...")
     
     try:
-        client = OpenAIClient()
-        
         # Test enemy generation
         print("\n🐉 Generating enemy for Floor 2...")
         enemy = client.generate_enemy_content(2, "Ancient Stone Chamber")
