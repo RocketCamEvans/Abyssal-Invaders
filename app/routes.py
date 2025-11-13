@@ -133,6 +133,64 @@ def get_player_status():
         return create_error_response(f"Error retrieving player status: {str(e)}"), 500
 
 
+@bp.route('/player/look', methods=['POST'])
+def look_around():
+    """
+    Inspect current room for available directions and details.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Get current room
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        # Get detailed room information
+        response_data = {
+            'room': {
+                'room_id': current_room.room_id,
+                'name': current_room.name,
+                'description': current_room.description,
+                'floor': current_room.floor,
+                'has_been_visited': current_room.has_been_visited,
+                'has_staircase': current_room.has_staircase,
+                'has_ally': current_room.has_ally(),
+                'ally_name': current_room.ally_data.get('name') if current_room.ally_data else None
+            },
+            'available_directions': current_room.get_available_directions(),
+            'connections': {direction: room_id for direction, room_id in current_room.connections.items()},
+            'player_status': {
+                'in_battle': player.in_battle,
+                'health': f"{player.health}/{player.max_health}",
+                'level': player.level,
+                'experience': player.get_current_level_progress()
+            }
+        }
+        
+        return create_success_response(response_data, "Room inspection completed")
+        
+    except Exception as e:
+        return create_error_response(f"Error inspecting room: {str(e)}"), 500
+
+
 @bp.route('/player/move', methods=['POST'])
 def move_player():
     """
@@ -190,7 +248,13 @@ def move_player():
             # Store ally for future battles - it will be used automatically in the next combat
         
         # Check for enemy encounter
+        encounter_roll_happened = False
+        encounter_roll_result_debug = "no_roll"
+        
         if new_room and controllers['combat'].check_encounter_chance(new_room):
+            encounter_roll_happened = True
+            encounter_roll_result_debug = "encounter_triggered"
+            
             # Generate enemy for encounter
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
@@ -202,6 +266,9 @@ def move_player():
             combat_result = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
             encounter_occurred = True
             encounter_result = combat_result
+        elif new_room:
+            encounter_roll_happened = True
+            encounter_roll_result_debug = "no_encounter"
         
         # NOW mark room as visited after encounter check
         if new_room:
@@ -222,9 +289,9 @@ def move_player():
         response_data['encounter_occurred'] = encounter_occurred
         response_data['ally_encountered'] = ally_encountered
         
-        # Add more detailed debug info
+        # Add more detailed debug info with correct encounter roll result
         if new_room:
-            response_data['debug']['encounter_roll_result'] = controllers['combat'].check_encounter_chance(new_room) if not new_room.has_been_visited else "room_already_visited"
+            response_data['debug']['encounter_roll_result'] = encounter_roll_result_debug
             response_data['debug']['room_visited_after_move'] = new_room.has_been_visited
         
         if encounter_occurred:
@@ -499,6 +566,100 @@ def delete_player():
         
     except Exception as e:
         return create_error_response(f"Error deleting player: {str(e)}"), 500
+
+
+@bp.route('/player/heal', methods=['POST'])
+def heal_player():
+    """
+    Restore player to full health (debug/cheat endpoint).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Heal to full
+        old_health = player.health
+        player.health = player.max_health
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        return create_success_response({
+            'old_health': old_health,
+            'new_health': player.health,
+            'max_health': player.max_health,
+            'message': f'Health restored from {old_health} to {player.health}!'
+        }, "Player healed to full health")
+        
+    except Exception as e:
+        return create_error_response(f"Error healing player: {str(e)}"), 500
+
+
+@bp.route('/debug/staircases', methods=['POST'])
+def debug_staircases():
+    """
+    Debug endpoint to check all staircases on current floor.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Get all rooms on current floor
+        room_db = controllers['movement'].room_db
+        floor_rooms = room_db.get_floor_rooms(player.floor)
+        
+        staircase_info = {}
+        for room_id, room_data in floor_rooms.items():
+            has_staircase = room_data.get('has_staircase', False)
+            staircase_info[room_id] = {
+                'name': room_data.get('name', 'Unknown'),
+                'has_staircase': has_staircase,
+                'has_been_visited': room_data.get('has_been_visited', False)
+            }
+        
+        return create_success_response({
+            'floor': player.floor,
+            'current_room': player.room_id,
+            'total_rooms': len(floor_rooms),
+            'rooms_with_staircases': sum(1 for info in staircase_info.values() if info['has_staircase']),
+            'room_details': staircase_info
+        }, "Staircase debug information")
+        
+    except Exception as e:
+        return create_error_response(f"Error getting staircase debug info: {str(e)}"), 500
 
 
 # Health check for individual components
