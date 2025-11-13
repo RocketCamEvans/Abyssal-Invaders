@@ -75,7 +75,7 @@ class CombatController:
         combat_result = {
             "description": combat_description,
             "combat_log": combat_log,
-            "winner": "player" if player.is_alive() else "enemy",
+            "winner": "player" if result['outcome'] == 'victory' else "enemy",
             "result": result,
             "final_player_health": player.health,
             "final_enemy_health": enemy.health
