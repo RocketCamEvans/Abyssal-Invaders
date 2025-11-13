@@ -13,7 +13,8 @@ class PlayerMoveRequest(PlayerSessionRequest):
 
 # Combat endpoints
 class CombatAttackRequest(PlayerSessionRequest):
-	enemy_data: dict
+	action: str
+	use_ally: bool
 
 class CombatUseAllyRequest(PlayerSessionRequest):
 	ally_index: int

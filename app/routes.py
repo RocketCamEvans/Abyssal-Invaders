@@ -257,11 +257,12 @@ def player_attack():
     try:
         from app.models.request_models import CombatAttackRequest
         req = CombatAttackRequest.parse_obj(request.get_json() or {})
-        if not req.session_id or not req.enemy_data:
-            return create_error_response("Missing session_id or enemy_data"), 400
+        if not req.session_id or not req.action:
+            return create_error_response("Missing session_id or action"), 400
 
         session_id = req.session_id
-        enemy_data = req.enemy_data
+        action = req.action
+        use_ally = req.use_ally
 
         # Get player
         user_db = get_user_db()
