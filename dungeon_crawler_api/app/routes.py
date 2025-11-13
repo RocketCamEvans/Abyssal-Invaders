@@ -184,6 +184,12 @@ def move_player():
             encounter_occurred = True
             encounter_result = combat_result
         
+        # NOW mark room as visited after encounter check
+        if new_room:
+            new_room.visit()
+            # Save the room with updated visited status
+            controllers['movement']._save_room(new_room)
+        
         # Award exploration gold
         exploration_gold = controllers['scoring'].award_exploration_gold(player, True)
         player.add_gold(exploration_gold)
@@ -195,6 +201,11 @@ def move_player():
         response_data = movement_result['data']
         response_data['exploration_gold'] = exploration_gold
         response_data['encounter_occurred'] = encounter_occurred
+        
+        # Add more detailed debug info
+        if new_room:
+            response_data['debug']['encounter_roll_result'] = controllers['combat'].check_encounter_chance(new_room) if not new_room.has_been_visited else "room_already_visited"
+            response_data['debug']['room_visited_after_move'] = new_room.has_been_visited
         
         if encounter_occurred:
             response_data['encounter_result'] = encounter_result
@@ -508,6 +519,54 @@ def delete_player():
 
 
 # Health check for individual components
+@bp.route('/debug/room', methods=['POST'])
+def debug_room_info():
+    """Debug endpoint to check room encounter and staircase status."""
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get current room
+        controllers = get_controllers()
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        # Test encounter chance multiple times to see probability
+        encounter_tests = []
+        for i in range(10):
+            encounter_tests.append(current_room.roll_for_encounter())
+        
+        debug_info = {
+            'room_id': current_room.room_id,
+            'room_name': current_room.name,
+            'floor': current_room.floor,
+            'has_been_visited': current_room.has_been_visited,
+            'encounter_chance': current_room.encounter_chance,
+            'has_staircase': current_room.has_staircase,
+            'available_directions': current_room.get_available_directions(),
+            'encounter_test_results': encounter_tests,
+            'encounters_triggered_out_of_10': sum(encounter_tests)
+        }
+        
+        return create_success_response(debug_info, "Room debug info")
+        
+    except Exception as e:
+        return create_error_response(f"Error getting debug info: {str(e)}"), 500
+
+
 @bp.route('/health/detailed', methods=['GET'])
 def detailed_health_check():
     """Detailed health check including database connectivity."""
