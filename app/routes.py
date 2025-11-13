@@ -73,8 +73,32 @@ def create_player():
         if not success:
             return create_error_response("Failed to create player session"), 500
         
+        # Hardcoded story intro - same for all players
+        story_intro = (
+            "The day started like any other at Rocket Software's headquarters. Developers typed away at their keyboards, "
+            "coffee machines hummed in break rooms, and the fluorescent lights buzzed overhead. But then, without warning, "
+            "a black SUV screeched to a halt outside the building.\n\n"
+            
+            "An evil wizard emerged, staff crackling with dark energy. With a wave of his gnarled hand and a muttered incantation, "
+            "reality itself bent and twisted. The building groaned and shifted—hallways stretched into impossible corridors, "
+            "conference rooms became monster-infested chambers, and the elevator shafts descended into endless darkness.\n\n"
+            
+            "Rocket Software had become an infinite labyrinth of horrors.\n\n"
+            
+            "But the employees were not defenseless. As the curse took hold, something awakened within them—ancient powers "
+            "of fantasy and legend. Programmers found themselves wielding swords of pure code. Project managers commanded "
+            "arcane shields. Even the interns discovered they could cast healing spells.\n\n"
+            
+            "Now, you and your fellow employees must fight through the cursed floors, battling office-dwelling monsters "
+            "and twisted creatures of corporate nightmare. Your mission: reclaim Rocket Software, defeat the wizard's minions, "
+            "and restore the building to normal.\n\n"
+            
+            "The labyrinth awaits. Steel yourself, brave employee. Your adventure begins now!"
+        )
+        
         response_data = {
             'session_id': player.session_id,
+            'story': story_intro,
             'player': {
                 'name': player.name,
                 'health': f"{player.health}/{player.max_health}",

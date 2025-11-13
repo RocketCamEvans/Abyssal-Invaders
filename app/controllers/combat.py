@@ -247,17 +247,19 @@ class CombatController:
         """
         if self.openai_client:
             try:
-                prompt = f"""You are a fantasy narrator with charm and wit. Describe the start of a battle in 2 sentences maximum.
+                prompt = f"""You are narrating a whimsical fantasy battle in a cursed office building!
 
-Player: {player.name} (Health: {player.health}, Attack: {player.attack_power}, Defense: {player.defense})
+An evil wizard turned Rocket Software into a monster-filled labyrinth. Employees fight back with fantasy powers!
+
+Player: {player.name} (HP: {player.health})
 Enemy: {enemy.name} - {enemy.description}
-Location: {room.name} - {room.description}
+Location: {room.name}
 
-Write a brief, atmospheric description of the encounter starting. Make it feel like a classic fantasy adventure with a touch of personality."""
+Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). Be fantastical, slightly funny, and whimsical. Keep it brief!"""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=80, temperature=0.8)
-                if description:
-                    return description
+                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.8)
+                if description and len(description) <= 250:
+                    return description[:250]  # Enforce limit
             except Exception as e:
                 print(f"OpenAI battle description failed: {e}")
         
@@ -280,21 +282,18 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         """
         if self.openai_client:
             try:
-                attacker_type = "heroic adventurer" if is_player else "fearsome creature"
-                prompt = f"""You are a fantasy combat narrator. A {attacker_type} named {attacker_name} just scored a critical hit against {target_name}, dealing {damage} damage.
+                attacker_type = "office warrior" if is_player else "cursed office creature"
+                prompt = f"""CRITICAL HIT in the cursed Rocket Software building!
 
-Write a brief, exciting description (1-2 sentences) explaining WHY this was a critical hit. Focus on skill, luck, or a perfect strike. Make it feel epic and satisfying.
+{attacker_name} ({attacker_type}) lands a devastating blow on {target_name} for {damage} damage!
 
-Examples:
-- "A perfect strike finds the gap in armor!"
-- "Lightning-fast reflexes catch the enemy off-guard!"
-- "A surge of adrenaline guides the blade true!"
+Write a SHORT, exciting critical hit description (MAX 150 characters). Be whimsical, slightly funny, and fantastical. Explain what made this hit so perfect!
 
-Keep it short and punchy."""
+Keep it BRIEF and punchy!"""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=50, temperature=0.9)
-                if description:
-                    return description
+                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.9)
+                if description and len(description) <= 200:
+                    return description[:200]  # Enforce limit
             except Exception as e:
                 print(f"OpenAI critical hit description failed: {e}")
         

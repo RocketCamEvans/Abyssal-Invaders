@@ -78,25 +78,35 @@ class OpenAIClient:
         """
         room_context = f" in {room_description}" if room_description else ""
         
-        prompt = f"""Create a fantasy enemy for floor {floor} of a dungeon crawler game{room_context}.
+        prompt = f"""You are creating enemies for a whimsical fantasy dungeon crawler set in a cursed office building.
 
-Please respond with a JSON object containing:
-- "name": A short, atmospheric enemy name (2-3 words max)
-- "description": A brief, evocative description (1-2 sentences)
+An evil wizard cursed Rocket Software's building into an infinite labyrinth. Employees now fight back with fantasy powers!
 
-The enemy should be appropriate for floor {floor} difficulty. Higher floors should have more dangerous creatures.
+Create an enemy for floor {floor}{room_context}.
 
-Example format:
-{{"name": "Shadow Wraith", "description": "A ghostly figure that feeds on fear, its hollow eyes gleaming with malevolent hunger."}}"""
+IMPORTANT: Mix business-themed enemies (like "Suited Vampire" or "Sentient Water Fountain") with generic fantasy monsters (like "Mossy Lurker"). Keep a fantastical but whimsical, slightly funny tone.
 
-        response = self.generate_completion(prompt, max_tokens=100, temperature=0.8)
+Respond ONLY with a JSON object (no other text):
+{{"name": "Enemy Name (2-4 words)", "description": "Brief, whimsical description (MAX 200 characters)"}}
+
+The description MUST be under 200 characters. Be creative but concise! Higher floors = more dangerous enemies."""
+
+        response = self.generate_completion(prompt, max_tokens=120, temperature=0.85)
         
         if response:
             try:
                 import json
-                content = json.loads(response)
-                if "name" in content and "description" in content:
-                    return content
+                # Try to extract JSON if there's extra text
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                if start >= 0 and end > start:
+                    json_str = response[start:end]
+                    content = json.loads(json_str)
+                    if "name" in content and "description" in content:
+                        # Enforce character limit
+                        if len(content["description"]) > 250:
+                            content["description"] = content["description"][:247] + "..."
+                        return content
             except json.JSONDecodeError:
                 pass
         
