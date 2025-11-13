@@ -151,6 +151,7 @@ def move_player():
         
         session_id = data['session_id']
         direction = sanitize_input(data['direction'])
+        turn_based = bool(data.get('turn_based'))  # optional flag
         
         # Get player
         user_db = get_user_db()
@@ -191,17 +192,48 @@ def move_player():
         
         # Check for enemy encounter
         if new_room and controllers['combat'].check_encounter_chance(new_room):
-            # Generate enemy for encounter
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
-            
-            # Use ally data if we just found one
-            ally_for_battle = ally_data if ally_encountered else None
-            
-            # Start turn-based battle
-            combat_result = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
-            encounter_occurred = True
-            encounter_result = combat_result
+
+            if turn_based:
+                # Begin turn-based battle (no auto resolution)
+                ally_for_battle = ally_data if ally_encountered else None
+                start_data = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
+                # Enrich with enemy/player snapshot
+                if not start_data.get('error'):
+                    data_block = start_data.get('data', {})
+                    data_block['battle_started'] = True
+                    data_block['enemy'] = enemy.to_dict()
+                    data_block['player'] = {
+                        'health': f"{player.health}/{player.max_health}",
+                        'gold': player.gold,
+                        'floor': player.floor,
+                        'room_id': player.room_id
+                    }
+                    start_data['data'] = data_block
+                encounter_occurred = True
+                encounter_result = start_data
+            else:
+                # Auto-resolve full combat
+                player, enemy, combat_result = controllers['combat'].initiate_combat(player, enemy, new_room)
+                if not combat_result.get('error'):
+                    data_block = combat_result.get('data', {})
+                    rounds = data_block.get('combat_log', [])
+                    outcome_msg = data_block.get('result', {}).get('message', combat_result.get('message', 'Combat resolved'))
+                    first_round_summary = rounds[0]['summary'] if rounds else ''
+                    short_summary = f"Encounter! {outcome_msg}" if outcome_msg else "Encounter resolved."
+                    data_block['enemy'] = enemy.to_dict()
+                    data_block['player_after'] = {
+                        'health': f"{player.health}/{player.max_health}",
+                        'gold': player.gold,
+                        'floor': player.floor,
+                        'room_id': player.room_id
+                    }
+                    data_block['short_summary'] = short_summary
+                    data_block['first_round'] = first_round_summary
+                    combat_result['data'] = data_block
+                encounter_occurred = True
+                encounter_result = combat_result
         
         # NOW mark room as visited after encounter check
         if new_room:
@@ -224,8 +256,9 @@ def move_player():
         
         # Add more detailed debug info
         if new_room:
-            response_data['debug']['encounter_roll_result'] = controllers['combat'].check_encounter_chance(new_room) if not new_room.has_been_visited else "room_already_visited"
+            response_data['debug']['encounter_roll_result'] = "turn_based_started" if (encounter_occurred and turn_based) else (controllers['combat'].check_encounter_chance(new_room) if not new_room.has_been_visited else "room_already_visited")
             response_data['debug']['room_visited_after_move'] = new_room.has_been_visited
+            response_data['debug']['turn_based'] = turn_based
         
         if encounter_occurred:
             response_data['encounter_result'] = encounter_result

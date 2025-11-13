@@ -2,7 +2,7 @@
 Flask application factory for the dungeon crawler game.
 """
 
-from flask import Flask
+from flask import Flask, render_template, Blueprint
 from pathlib import Path
 import os
 
@@ -35,6 +35,15 @@ def create_app(config_name: str = 'development') -> Flask:
     # Register blueprints/routes
     from . import routes
     app.register_blueprint(routes.bp)
+
+    # Web front-end blueprint (serves index.html)
+    web = Blueprint('web', __name__, template_folder='templates', static_folder='static')
+
+    @web.route('/')
+    def index():
+        return render_template('index.html')
+
+    app.register_blueprint(web)
     
     # Register error handlers
     _register_error_handlers(app)

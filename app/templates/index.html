@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abyssal Invaders</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Abyssal Invaders</h1>
+    <div id="session-info"></div>
+  </header>
+  <main class="layout">
+    <section class="panel" id="player-panel">
+      <h2>Player</h2>
+      <div id="player-stats" class="stats">No player yet.</div>
+      <div class="actions">
+        <button id="btn-new-player">New Player</button>
+        <button id="btn-refresh">Refresh</button>
+        <button id="btn-submit-score" disabled>Submit Score</button>
+        <button id="btn-delete" disabled>Delete Player</button>
+      </div>
+      <h3>Movement</h3>
+      <div class="movement">
+        <button class="mv" data-dir="north" disabled>North</button>
+        <button class="mv" data-dir="south" disabled>South</button>
+        <button class="mv" data-dir="east" disabled>East</button>
+        <button class="mv" data-dir="west" disabled>West</button>
+        <button class="mv" data-dir="up" disabled>Stairs Up</button>
+      </div>
+      <h3>Combat</h3>
+      <div class="combat">
+        <button id="btn-attack" disabled>Attack</button>
+        <button id="btn-use-ally" disabled>Use Ally</button>
+        <button id="btn-flee" disabled>Flee</button>
+        <button id="btn-encounter-ally" disabled>Encounter Ally</button>
+      </div>
+    </section>
+
+    <section class="panel" id="room-panel">
+      <h2>Room</h2>
+      <div id="room-info"></div>
+      <h3>Messages</h3>
+      <div id="messages" class="log"></div>
+      <h3>Combat Log</h3>
+      <div id="combat-log" class="log"></div>
+    </section>
+
+    <section class="panel" id="scores-panel">
+      <h2>High Scores</h2>
+      <ol id="high-scores"></ol>
+    </section>
+  </main>
+  <footer>
+    <small>&copy; 2025 Abyssal Invaders</small>
+  </footer>
+  <script>window.ABYSSAL_API = '/api';</script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
