@@ -35,6 +35,8 @@ class Player:
         self.current_ally = None  # Current ally for this battle (if any)
         self.ally_used = False  # Whether ally has been used in current battle
         self.battle_room = None  # Room data where battle is taking place
+        self.temp_attack_boost = 0  # Temporary attack boost from items
+        self.temp_defense_boost = 0  # Temporary defense boost from items
         
     def take_damage(self, damage: int) -> bool:
         """
@@ -177,6 +179,10 @@ class Player:
         """
         End the current battle and reset battle state.
         """
+        self.attack_power -= self.temp_attack_boost
+        self.defense -= self.temp_defense_boost
+        self.temp_attack_boost = 0
+        self.temp_defense_boost = 0
         self.in_battle = False
         self.current_enemy = None
         self.battle_room = None
@@ -292,7 +298,9 @@ class Player:
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
             "ally_used": self.ally_used,
-            "battle_room": self.battle_room
+            "battle_room": self.battle_room,
+            "temp_attack_boost": self.temp_attack_boost,
+            "temp_defense_boost": self.temp_defense_boost
         }
     
     @classmethod
@@ -331,5 +339,7 @@ class Player:
         player.current_ally = data.get("current_ally", None)
         player.ally_used = data.get("ally_used", False)
         player.battle_room = data.get("battle_room", None)
+        player.temp_attack_boost = data.get("temp_attack_boost", 0)
+        player.temp_defense_boost = data.get("temp_defense_boost", 0)
         
         return player

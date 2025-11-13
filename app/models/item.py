@@ -129,11 +129,13 @@ class Item:
             
         elif self.effect_type == "attack_boost":
             player.attack_power += self.effect_value
+            player.temp_attack_boost += self.effect_value
             result["message"] = f"Used {self.name}! Attack power increased by {self.effect_value}!"
             result["attack_boost"] = self.effect_value
             
         elif self.effect_type == "defense_boost":
             player.defense += self.effect_value
+            player.temp_defense_boost += self.effect_value
             result["message"] = f"Used {self.name}! Defense increased by {self.effect_value}!"
             result["defense_boost"] = self.effect_value
             
