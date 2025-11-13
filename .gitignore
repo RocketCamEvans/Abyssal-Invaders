@@ -207,4 +207,4 @@ marimo/_lsp/
 __marimo__/
 
 # Project data files
-dungeon_crawler_api/data/
+data/
