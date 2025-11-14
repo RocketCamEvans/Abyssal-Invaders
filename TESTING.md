@@ -25,7 +25,9 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 ├── app/
 │   └── controllers/
 │       ├── test_combat.py          # Comprehensive CombatController tests
-│       └── test_generation.py      # Comprehensive GenerationController tests
+│       ├── test_generation.py      # Comprehensive GenerationController tests
+│       ├── test_inventory.py       # Comprehensive InventoryController tests
+│       └── test_movement.py        # Comprehensive MovementController tests
 └── [other test files...]
 ```
 
@@ -125,20 +127,168 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 - Exception handling for API errors
 - Consistent output format regardless of generation method
 
+## InventoryController Testing (`test_inventory.py`)
+
+### Test Coverage Areas
+
+#### 1. Controller Initialization
+- Basic controller setup and configuration
+- Item find chance constants verification
+
+#### 2. Item Finding System (`roll_for_item_find`)
+- Successful item discovery with proper probability mocking
+- Failed item discovery scenarios (above threshold)
+- Visited room behavior (no items found in previously visited rooms)
+- Random item type generation integration
+- Floor-based item selection verification
+
+#### 3. Inventory Management
+- Adding items to player inventory through controller
+- Item validation and proper response formatting
+- Inventory size tracking and response data structure
+
+#### 4. Item Usage System (`use_item`)
+- Successful item usage with various item types
+- Item consumption after successful use
+- Non-existent item handling
+- Combat context validation (items usable only in combat)
+- Enemy interaction for combat items
+- Item use failure scenarios and error handling
+- Player and enemy stat updates after item use
+
+#### 5. Inventory Operations
+- Getting complete inventory with proper formatting
+- Empty inventory handling
+- Grouped inventory organization by item type
+- Item discarding functionality (success and failure cases)
+- Combat-usable item filtering
+
+#### 6. Item Model Integration
+- All item type creation and validation (8 item types)
+- Invalid item type error handling
+- Item serialization and deserialization (to_dict/from_dict)
+- Item information retrieval (get_item_info)
+
+#### 7. Item Effects Testing
+- Health restoration items (health_potion, greater_health_potion)
+- Health cap respect (cannot exceed max_health)
+- Stat boost items (attack_boost, defense_boost)
+- Damage items (damage_bomb, poison_vial) with enemy interaction
+- Damage item failure without enemy target
+- Utility items (gold_coin_bag, escape_scroll)
+- Item effect result structure validation
+
+#### 8. Player Inventory Integration
+- Direct player inventory operations (add, remove, get)
+- Inventory persistence through player serialization
+- Non-existent item handling in player operations
+
+#### 9. Random Item Generation
+- Floor-based rarity weighting system
+- Weighted item selection mocking and verification
+- Random item type distribution testing
+
+## MovementController Testing (`test_movement.py`)
+
+### Test Coverage Areas
+
+#### 1. Controller Initialization
+- Default RoomDB initialization and custom RoomDB injection
+- Session management and session ID configuration
+- Room caching system initialization
+
+#### 2. Player Movement System (`move_player`)
+- Valid direction movement with bidirectional connections
+- Invalid direction handling and error responses
+- Room connection validation and traversal
+- Direction normalization (north, n, N all work)
+- Missing room handling and regeneration
+- Current room not found error scenarios
+
+#### 3. Staircase System (`_handle_staircase`)
+- Successful floor transitions via staircase
+- Staircase presence validation
+- Player floor advancement and room reset
+- Starting room initialization on new floors
+
+#### 4. Room Management
+- Room retrieval from database and cache
+- Room saving with database persistence
+- Cache management and invalidation
+- Session-specific room handling
+- Room cache key generation and lookup
+
+#### 5. Floor Generation System
+- Complete floor generation with connected rooms
+- Room connection algorithms (minimum spanning tree)
+- Bidirectional connection establishment
+- Staircase placement (exactly one per floor)
+- Floor size randomization (5-15 rooms)
+- Room ID generation and uniqueness
+
+#### 6. Room Connection Logic (`_connect_floor_rooms`)
+- Minimum spanning tree room connectivity
+- Bidirectional path creation
+- Available direction validation
+- Connection conflict resolution
+
+#### 7. Session-Specific Features
+- Session-based room storage and retrieval
+- Session-specific floor generation with deterministic seeding
+- Session cache management and clearing
+- Fallback to regular operations without session
+
+#### 8. Room Generation (`_generate_room`)
+- Random room name and description selection
+- Encounter chance calculation based on floor
+- Ally placement probability (8% chance)
+- Room property initialization
+
+#### 9. Floor Management
+- Floor existence checking and validation
+- Complete floor regeneration when rooms are missing
+- Staircase validation and placement
+- Start room generation for new floors
+
+#### 10. Utility Functions
+- Available movement options retrieval
+- Player room initialization for new players
+- Opposite direction calculation for bidirectional connections
+- Direction validation and normalization
+
+#### 11. Error Handling and Edge Cases
+- Missing room recovery and regeneration
+- Invalid direction inputs
+- Database failure scenarios
+- Cache inconsistency handling
+- Room connection conflicts
+
 ### Test Categories
 
 #### Unit Tests (Primary Focus)
+- **TestMovementController**: Comprehensive tests for all MovementController methods
 - **TestCombatController**: Comprehensive tests for all CombatController methods
 - **TestGenerationController**: Comprehensive tests for all GenerationController methods
+- **TestInventoryController**: Comprehensive tests for all InventoryController methods
+- **TestItemModel**: Complete Item model functionality testing
 - Mocks all external dependencies (OpenAI, random functions, model interactions)
 - Tests individual method behavior in isolation
 - Covers edge cases, error conditions, and boundary scenarios
 
+#### Edge Case Testing
+- **TestMovementControllerEdgeCases**: Tests for complex scenarios and error conditions
+- **TestMovementControllerSessionHandling**: Session-specific functionality testing
+- Direction normalization and validation edge cases
+- Room generation with various probability scenarios
+- Cache behavior under different conditions
+
 #### Integration Tests
 - **TestCombatControllerIntegration**: End-to-end workflow testing for combat
 - **TestGenerationControllerIntegration**: End-to-end workflow testing for content generation
-- Uses real model objects (Player, Enemy, Room) without mocking
-- Verifies complete workflows (combat flows, content generation consistency)
+- **TestInventoryControllerIntegration**: End-to-end workflow testing for inventory management
+- **TestPlayerInventoryIntegration**: Player inventory operations with real objects
+- Uses real model objects (Player, Enemy, Room, Item) without mocking
+- Verifies complete workflows (combat flows, content generation consistency, item lifecycles)
 - Ensures different components work together correctly
 
 ### Mocking Strategy
@@ -149,11 +299,16 @@ This document describes the testing strategy and structure for the Abyssal-Invad
 3. **Utility Functions**: `calculate_damage_with_variance()`, `roll_dice()` mocked for controlled results
 4. **Model Methods**: Specific model methods mocked when testing controller logic in isolation
 5. **OpenAI Client Creation**: `create_openai_client()` mocked to control client availability scenarios
+6. **Item Generation**: `Item.get_random_item_type()` mocked for predictable item creation
+7. **Database Operations**: `RoomDB` operations mocked to prevent file I/O during testing
+8. **Floor Generation**: `generate_room_id()`, room name/description generators mocked for predictable outcomes
+9. **Hash Functions**: `hashlib.md5()` mocked for session-based seeding scenarios
 
 #### Real Objects Used
-- Player, Enemy, Room model instances used to test actual object interactions
+- Player, Enemy, Room, Item model instances used to test actual object interactions
 - Helper functions from utils module used to test real integration
 - Template data systems tested with real data structures
+- Item effect systems tested with real stat modifications
 
 ## Running Tests
 
@@ -170,14 +325,20 @@ pytest
 # Run specific test file
 pytest tests/app/controllers/test_combat.py
 pytest tests/app/controllers/test_generation.py
+pytest tests/app/controllers/test_inventory.py
+pytest tests/app/controllers/test_movement.py
 
 # Run tests with coverage
 pytest --cov=app/controllers/combat tests/app/controllers/test_combat.py
 pytest --cov=app/controllers/generation tests/app/controllers/test_generation.py
+pytest --cov=app/controllers/inventory tests/app/controllers/test_inventory.py
+pytest --cov=app/controllers/movement tests/app/controllers/test_movement.py
 
 # Run tests with detailed coverage report
 pytest --cov=app/controllers/combat --cov-report=html tests/app/controllers/test_combat.py
 pytest --cov=app/controllers/generation --cov-report=html tests/app/controllers/test_generation.py
+pytest --cov=app/controllers/inventory --cov-report=html tests/app/controllers/test_inventory.py
+pytest --cov=app/controllers/movement --cov-report=html tests/app/controllers/test_movement.py
 ```
 
 ### Test Output
@@ -220,4 +381,4 @@ Tests provide detailed feedback on:
 
 *Last Updated: November 13, 2025*
 *Framework: pytest*
-*Coverage: combat.py, generation.py - Comprehensive unit and integration testing*
+*Coverage: combat.py, generation.py, inventory.py, movement.py - Comprehensive unit and integration testing*
