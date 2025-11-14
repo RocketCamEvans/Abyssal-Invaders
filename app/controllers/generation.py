@@ -40,6 +40,8 @@ class GenerationController:
         self.use_openai = use_openai and OPENAI_AVAILABLE
         self.openai_client = None
         
+        print(f"DEBUG GEN CONTROLLER INIT: use_openai parameter={use_openai}, final use_openai={self.use_openai}")
+        
         # Initialize OpenAI client if available and requested
         if self.use_openai:
             try:
@@ -50,6 +52,8 @@ class GenerationController:
             except Exception as e:
                 print(f"Warning: Could not initialize OpenAI client: {e}")
                 self.use_openai = False
+        
+        print(f"DEBUG GEN CONTROLLER INIT: Final use_openai={self.use_openai}, will use {'OpenAI' if self.use_openai else 'TEMPLATES'}")
         
         # Load templates as fallback
         self.enemy_name_templates = self._load_enemy_name_templates()
@@ -132,21 +136,23 @@ class GenerationController:
         Returns:
             Dict[str, str]: Generated name and description
         """
-        # Try OpenAI first if available
-        if self.use_openai and self.openai_client:
-            try:
-                return self.openai_client.generate_room_content(floor)
-            except Exception as e:
-                print(f"OpenAI generation failed, falling back to templates: {e}")
+        print(f"DEBUG GEN CONTROLLER: generate_room_content called for floor {floor}, room {room_id}")
+        print(f"DEBUG GEN CONTROLLER: FORCING TEMPLATE USE FOR ROOMS (OpenAI disabled for rooms only)")
         
-        # Fallback to template-based generation
+        # ALWAYS use template-based generation for rooms (custom requirement)
+        # OpenAI is still used for enemies and allies, just not rooms
+        print(f"DEBUG GEN CONTROLLER: Using template-based generation")
         difficulty_modifier = self._get_difficulty_modifier(floor)
+        print(f"DEBUG GEN CONTROLLER: Difficulty modifier for floor {floor}: '{difficulty_modifier}'")
         
         # Select room names based on floor difficulty
         room_names = self.room_name_templates.get(difficulty_modifier, self.room_name_templates["basic"])
+        print(f"DEBUG GEN CONTROLLER: Available room names: {room_names}")
         
         name = random.choice(room_names)
         description = self._generate_room_description(name, floor, room_id)
+        
+        print(f"DEBUG GEN CONTROLLER: Selected room name: '{name}'")
         
         return {
             "name": name,
@@ -348,18 +354,25 @@ class GenerationController:
         """
         return {
             "basic": [
-                "Stone Chamber", "Dusty Corridor", "Old Storage Room", "Abandoned Cell", "Narrow Passage",
-                "Cracked Hall", "Forgotten Alcove", "Simple Antechamber", "Empty Vault", "Basic Sanctum"
+                "Warped Hallway", "Deranged Buffalo Room", "Splintered Cossatot Room", "Abandoned Durham Room",
+                "Narrow Hallway", "Cracked Mockingbird Room",
+                "Empty Pettigrew Room", "Basic Razorback Room", "Dusty Bathroom", "Breakroom of DOOM",
+                "Wizard's Cellar", "Featureless Chamber"
             ],
             "intermediate": [
-                "Crystal Cavern", "Iron Gallery", "Mystic Archive", "Enchanted Library", "Guardian's Rest",
-                "Ethereal Sanctum", "Twisted Laboratory", "Ancient Armory", "Spectral Chamber", "Elemental Forge"
+                "Crystalized Hallway", "Iron-clad Buffalo Room", "Enchanted Durham Room",
+                "Gloomy Hallway", "Ethereal Mockingbird Room", "Forgotten Ozark Room", "Spectral Panda Room",
+                "Ancient Pettigrew Room", "Abandoned Elevator Shaft", "Crying Room",
+                "Guardian's Rest", "Twisted Laboratory", "Damp Armory", "Sanctum of Echoes"
             ],
             "advanced": [
-                "Dimensional Rift", "Void Observatory", "Nightmare Realm", "Chaos Laboratory", "Temporal Nexus",
-                "Soul Prison", "Reality Fracture", "Abyssal Gateway", "Terror Sanctum", "Madness Chamber"
+                "Demolished Hallway",
+                "Hellish Hallway", "Forbidden Ozark Room", "Forsaken Panda Room",
+                "Endless Pettigrew Room", "Screaming Razorback Room", "Crazed Clock Room", "Filthy Storage Closet",
+                "Dimensional Rift", "Nightmare Realm", "Soul Prison", "Reality Fracture", "Abyssal Gateway", "Terror Sanctum", "Madness Chamber"
             ],
             "legendary": [
+                "Hallway of Ancient Evils", "Hallway Between Infinite Worlds",
                 "Cosmic Throne Room", "Divine Judgment Hall", "Eternal Battlefield", "Primordial Nexus", "Reality Core",
                 "Infinite Labyrinth", "Omniversal Archive", "Celestial Observatory", "Apocalypse Chamber", "Creation Forge"
             ]

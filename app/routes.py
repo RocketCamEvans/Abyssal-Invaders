@@ -109,6 +109,8 @@ def create_player():
                 'level': player.level,
                 'attack_power': player.attack_power,
                 'defense': player.defense,
+                'visited_rooms': list(player.visited_rooms),
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
                 'inventory': [item.get_item_info() for item in player.inventory]
             },
@@ -165,7 +167,8 @@ def get_player_status():
             },
             'current_room': current_room.get_room_info(),
             'movement_options': movement_info['data'] if not movement_info.get('error') else {},
-            'inventory': [item.get_item_info() for item in player.inventory]
+            'inventory': [item.get_item_info() for item in player.inventory],
+            'allies': [ally.get_ally_info() if hasattr(ally, 'get_ally_info') else ally for ally in player.allies]
         }
         
         return create_success_response(response_data, "Player status retrieved")
@@ -280,20 +283,32 @@ def move_player():
         item_found = False
         item_result = None
         
-        # Check for ally first (if room has one)
+        # Store if room was visited BEFORE we mark it (to prevent exploits)
+        room_was_visited = new_room.has_been_visited if new_room else True
+        
+        # Check for ally first (if room has one AND room not yet visited)
         ally_data = None
-        if new_room and new_room.has_ally():
+        if new_room and not room_was_visited and new_room.has_ally():
+            from app.models.ally import Ally
             ally_data = new_room.take_ally()  # Remove ally from room after taking
             ally_encountered = True
+            
+            print(f"DEBUG ALLY RECRUIT: Player had {len(player.allies)} allies before recruitment")
+            
+            # Create Ally object and add to player's allies list
+            ally = Ally.from_dict(ally_data)
+            player.add_ally(ally)
+            
+            print(f"DEBUG ALLY RECRUIT: Player now has {len(player.allies)} allies after recruitment")
+            print(f"DEBUG ALLY RECRUIT: Allies list: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
+            
             ally_result = {
                 'ally_found': True,
-                'ally_name': ally_data['name'],
-                'ally_description': ally_data['description'],
-                'message': f"You encountered {ally_data['name']}! They will assist you in your next battle."
+                'ally': ally.to_dict(),
+                'message': f"🤝 {ally.name} joins your party! Use them anytime in battle. ({ally.description})"
             }
-            # Store ally for future battles - it will be used automatically in the next combat
         
-        # Check for enemy encounter
+        # Check for enemy encounter (roll_for_encounter already checks has_been_visited)
         encounter_roll_happened = False
         encounter_roll_result_debug = "no_roll"
         
@@ -305,27 +320,25 @@ def move_player():
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
             
-            # Use ally data if we just found one
-            ally_for_battle = ally_data if ally_encountered else None
-            
-            # Start turn-based battle
-            combat_result = controllers['combat'].start_battle(player, enemy, new_room, ally_for_battle)
+            # Start turn-based battle (no ally passed - player chooses when to use)
+            combat_result = controllers['combat'].start_battle(player, enemy, new_room, None)
             encounter_occurred = True
             encounter_result = combat_result
         elif new_room:
             encounter_roll_happened = True
             encounter_roll_result_debug = "no_encounter"
             
-            # If no encounter, check for item find (high chance)
-            found_item, item = controllers['inventory'].roll_for_item_find(player, new_room.has_been_visited)
-            if found_item and item:
-                item_found = True
-                controllers['inventory'].add_item_to_inventory(player, item)
-                item_result = {
-                    'item_found': True,
-                    'item': item.get_item_info(),
-                    'message': f"You found {item.name}!"
-                }
+            # If no encounter, check for item find (only if NOT visited)
+            if not room_was_visited:
+                found_item, item = controllers['inventory'].roll_for_item_find(player, room_was_visited)
+                if found_item and item:
+                    item_found = True
+                    controllers['inventory'].add_item_to_inventory(player, item)
+                    item_result = {
+                        'item_found': True,
+                        'item': item.get_item_info(),
+                        'message': f"You found {item.name}!"
+                    }
         
         # NOW mark room as visited after encounter check
         if new_room:
@@ -333,9 +346,14 @@ def move_player():
             # Save the room with updated visited status
             controllers['movement']._save_room(new_room)
         
-        # Award exploration gold
-        exploration_gold = controllers['scoring'].award_exploration_gold(player, True)
-        player.add_gold(exploration_gold)
+        # Award exploration gold only on first visit
+        exploration_gold = 0
+        if not room_was_visited:
+            exploration_gold = controllers['scoring'].award_exploration_gold(player, True)
+            player.add_gold(exploration_gold)
+        
+        print(f"DEBUG MOVE END: Player has {len(player.allies)} allies before saving")
+        print(f"DEBUG MOVE END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
@@ -376,18 +394,17 @@ def player_attack():
     {
         "session_id": "player-session-id",
         "action": "attack" | "flee",
-        "use_ally": false (optional, for ally special attack)
+        "ally_index": 0 (optional, index of ally to use in attack)
     }
     """
     try:
-        from app.models.request_models import CombatAttackRequest
-        req = CombatAttackRequest.parse_obj(request.get_json() or {})
-        if not req.session_id or not req.action:
-            return create_error_response("Missing session_id or action"), 400
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+        action = data.get('action')
+        ally_index = data.get('ally_index')  # Optional: which ally to use
 
-        session_id = req.session_id
-        action = req.action
-        use_ally = req.use_ally
+        if not session_id or not action:
+            return create_error_response("Missing session_id or action"), 400
 
         # Get player
         user_db = get_user_db()
@@ -396,6 +413,8 @@ def player_attack():
             return create_error_response("Player session not found"), 404
         
         player = Player.from_dict(player_data)
+        
+        print(f"DEBUG: Before combat action - Player has {len(player.allies)} allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
         if not player.is_alive():
             return create_error_response("Cannot act - player is not alive"), 400
@@ -406,13 +425,16 @@ def player_attack():
         controllers = get_controllers()
         
         if action == "attack":
-            # Execute attack
-            attack_result = controllers['combat'].execute_attack(player, use_ally)
+            # Execute attack (with optional ally)
+            use_ally = ally_index is not None
+            attack_result = controllers['combat'].execute_attack(player, use_ally, ally_index)
         elif action == "flee":
             # Execute flee
             attack_result = controllers['combat'].execute_flee(player)
         else:
             return create_error_response("Invalid action. Use 'attack' or 'flee'"), 400
+        
+        print(f"DEBUG: After combat action - Player has {len(player.allies)} allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
@@ -860,6 +882,143 @@ def discard_item():
         
     except Exception as e:
         return create_error_response(f"Error discarding item: {str(e)}"), 500
+
+
+@bp.route('/shop/view', methods=['POST'])
+def view_shop():
+    """
+    View shop items in current room.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        print(f"DEBUG: Shop view - Player at room_id: {player.room_id}, floor: {player.floor}, session: {session_id[:8]}")
+        
+        # Get current room - use regular get_room since rooms are saved without explicit session suffix in ID
+        controllers = get_controllers()
+        controllers['movement'].set_session(session_id)  # Set session for any room operations
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        
+        print(f"DEBUG: Shop view - Room found: {current_room is not None}")
+        if current_room:
+            print(f"DEBUG: Shop view - Room is_shop: {current_room.is_shop}")
+            print(f"DEBUG: Shop view - Shop items count: {len(current_room.shop_items)}")
+        
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        if not current_room.is_shop:
+            return create_error_response("Current room is not a shop"), 400
+        
+        # Get available items (excluding already purchased)
+        available_items = current_room.get_available_shop_items()
+        
+        return create_success_response({
+            "shop_items": available_items,
+            "player_gold": player.gold
+        }, "Shop inventory retrieved")
+        
+    except Exception as e:
+        return create_error_response(f"Error viewing shop: {str(e)}"), 500
+
+
+@bp.route('/shop/purchase', methods=['POST'])
+def purchase_item():
+    """
+    Purchase an item from the shop.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "item_name": "Item Name"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'item_name' not in data:
+            return create_error_response("Missing session_id or item_name"), 400
+        
+        session_id = data['session_id']
+        item_name = data['item_name']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get current room - use regular get_room since rooms are saved without explicit session suffix in ID
+        controllers = get_controllers()
+        controllers['movement'].set_session(session_id)  # Set session for any room operations
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        if not current_room.is_shop:
+            return create_error_response("Current room is not a shop"), 400
+        
+        # Check if item already purchased
+        if current_room.is_item_purchased(item_name):
+            return create_error_response("Item already purchased"), 400
+        
+        # Find the item in shop
+        shop_item = None
+        for item in current_room.shop_items:
+            if item['name'] == item_name:
+                shop_item = item
+                break
+        
+        if not shop_item:
+            return create_error_response("Item not found in shop"), 404
+        
+        # Check if player has enough gold
+        if player.gold < shop_item['price']:
+            return create_error_response(f"Not enough gold. Need {shop_item['price']}, have {player.gold}"), 400
+        
+        # Deduct gold
+        player.gold -= shop_item['price']
+        
+        # Add item to inventory
+        new_item = Item(shop_item['item_type'])
+        player.add_to_inventory(new_item.to_dict())
+        
+        # Mark item as purchased
+        current_room.purchase_item(item_name)
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        # Save updated room state - use regular _save_room since session is set
+        controllers['movement']._save_room(current_room)
+        
+        return create_success_response({
+            "purchased_item": shop_item,
+            "gold_remaining": player.gold,
+            "inventory": player.inventory
+        }, f"Purchased {item_name} for {shop_item['price']} gold!")
+        
+    except Exception as e:
+        return create_error_response(f"Error purchasing item: {str(e)}"), 500
 
 
 # Health check for individual components

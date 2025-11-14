@@ -2,10 +2,10 @@
 Movement controller for handling player movement between rooms.
 """
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 from ..models import Player, Room
 from ..utils import RoomDB, validate_direction, create_error_response, create_success_response
-from ..utils.helpers import generate_room_id, get_random_room_names, get_random_room_descriptions
+from ..utils.helpers import generate_room_id
 import random
 
 
@@ -24,6 +24,7 @@ class MovementController:
         self.room_db = room_db or RoomDB()
         self.room_cache = {}  # Cache rooms in memory for current session
         self.current_session_id = None  # Track current session for session-specific rooms
+        self._generation_controller = None  # Lazy-loaded GenerationController
     
     def set_session(self, session_id: str):
         """
@@ -109,6 +110,7 @@ class MovementController:
             "player_stats": {
                 "floor": player.floor,
                 "room_id": player.room_id,
+                "visited_rooms": list(player.visited_rooms),
                 "health": f"{player.health}/{player.max_health}",
                 "gold": player.gold
             },
@@ -149,6 +151,7 @@ class MovementController:
         response_data = {
             "moved_from_floor": old_floor,
             "moved_to_floor": player.floor,
+            "direction": "up",  # Add direction for minimap to detect floor change
             "room_info": start_room.get_room_info(),
             "player_stats": {
                 "floor": player.floor,
@@ -213,7 +216,15 @@ class MovementController:
         cache_key = f"{session_floor_key}_{room_id}"
         
         # Try to load from database with session-specific key
-        room_data = self.room_db.get_room(f"{room_id}_session_{player_session[:8]}", floor)
+        lookup_key = f"{room_id}_session_{player_session[:8]}"
+        print(f"DEBUG: get_room_for_session - Looking for room: {lookup_key} on floor {floor}")
+        
+        room_data = self.room_db.get_room(lookup_key, floor)
+        
+        print(f"DEBUG: get_room_for_session - Room data found: {room_data is not None}")
+        if room_data:
+            print(f"DEBUG: get_room_for_session - Room is_shop: {room_data.get('is_shop', False)}")
+        
         if room_data:
             room = Room.from_dict(room_data)
             # Update room_id to remove session suffix for consistency
@@ -222,9 +233,12 @@ class MovementController:
             return room
         
         # Check cache as fallback
+        print(f"DEBUG: get_room_for_session - Checking cache with key: {cache_key}")
         if cache_key in self.room_cache:
+            print(f"DEBUG: get_room_for_session - Found in cache")
             return self.room_cache[cache_key]
         
+        print(f"DEBUG: get_room_for_session - Room not found anywhere")
         return None
     
     def _save_room(self, room: Room) -> bool:
@@ -307,13 +321,22 @@ class MovementController:
         Returns:
             Room: Generated room
         """
-        # Generate random name and description
-        # In a real implementation, this would call the LLM generation service
-        room_names = get_random_room_names()
-        room_descriptions = get_random_room_descriptions()
+        print(f"DEBUG ROOM GEN: Generating room {room_id} on floor {floor}")
         
-        name = random.choice(room_names)
-        description = random.choice(room_descriptions)
+        # Lazy-load GenerationController (reuse instance for performance)
+        if self._generation_controller is None:
+            from .generation import GenerationController
+            self._generation_controller = GenerationController()
+            print(f"DEBUG ROOM GEN: Created new GenerationController instance")
+        
+        # Generate room name and description using the GenerationController
+        room_content = self._generation_controller.generate_room_content(floor, room_id)
+        
+        name = room_content["name"]
+        description = room_content["description"]
+        
+        print(f"DEBUG ROOM GEN: Generated room name: '{name}'")
+        print(f"DEBUG ROOM GEN: Generated room description: '{description[:50]}...'")
         
         # Create room
         room = Room(room_id=room_id, name=name, description=description, floor=floor)
@@ -376,8 +399,22 @@ class MovementController:
         # Ensure all rooms are connected in a web
         self._connect_floor_rooms(rooms, room_ids)
         
-        # Place exactly one staircase randomly (not in start room)
-        non_start_rooms = [rid for rid in room_ids if rid != "start"]
+        # Randomly generate a shop on this floor (60% chance)
+        shop_generated = False
+        if random.random() < 0.6:
+            # Place shop in a non-start, non-staircase room
+            non_start_rooms = [rid for rid in room_ids if rid != "start"]
+            if len(non_start_rooms) > 1:  # Need at least 2 rooms to avoid staircase conflict
+                shop_room_id = random.choice(non_start_rooms)
+                shop_items = self._generate_shop_items(floor)
+                rooms[shop_room_id].set_shop(shop_items)
+                rooms[shop_room_id].name = "The Wandering Merchant"
+                rooms[shop_room_id].description = "A mysterious merchant has set up shop here, offering wares to brave adventurers."
+                shop_generated = True
+                print(f"DEBUG: Shop generated in room {shop_room_id} on floor {floor}")
+        
+        # Place exactly one staircase randomly (not in start room and not in shop)
+        non_start_rooms = [rid for rid in room_ids if rid != "start" and not rooms[rid].is_shop]
         if non_start_rooms:
             staircase_room_id = random.choice(non_start_rooms)
             rooms[staircase_room_id].set_staircase(True)
@@ -385,6 +422,10 @@ class MovementController:
             # If only start room exists, place staircase there
             print(f"DEBUG: Only start room exists on floor {floor}, placing staircase in start room")
             rooms["start"].set_staircase(True)
+        
+        # If shop was generated, update start room description to hint at it
+        if shop_generated:
+            start_room.description += " You hear faint curated shopping music in the distance."
         
         print(f"DEBUG: Floor {floor} generated with {len(rooms)} rooms: {list(rooms.keys())}")
         
@@ -639,20 +680,55 @@ class MovementController:
             Dict[str, Any]: Ally data
         """
         # Import here to avoid circular imports
-        from .generation import GenerationController
+        from ..models.ally import Ally
         
-        generation_controller = GenerationController()
-        ally_content = generation_controller.generate_ally_content(floor)
+        # Create a random ally from the predefined list
+        ally = Ally.create_random_ally(floor)
         
-        # Create ally data with stats scaled to floor
-        ally_data = {
-            'name': ally_content['name'],
-            'description': ally_content['description'],
-            'attack_power': 10 + (floor * 2),  # Scales with floor
-            'floor': floor
-        }
+        return ally.to_dict()
+    
+    def _generate_shop_items(self, floor: int) -> List[Dict[str, Any]]:
+        """
+        Generate 3 random items for shop with prices.
         
-        return ally_data
+        Args:
+            floor (int): Floor number for scaling prices
+            
+        Returns:
+            List[Dict[str, Any]]: List of items with prices
+        """
+        from ..models.item import Item
+        
+        # Get all available item types (exclude cursed items from shop)
+        available_types = [t for t, data in Item.ITEM_TYPES.items() 
+                          if data["rarity"] != "cursed"]
+        
+        # Select 3 random items
+        selected_types = random.sample(available_types, min(3, len(available_types)))
+        
+        shop_items = []
+        for item_type in selected_types:
+            item_data = Item.ITEM_TYPES[item_type].copy()
+            
+            # Calculate price based on rarity and floor
+            base_price = {
+                "common": 30,
+                "uncommon": 60,
+                "rare": 100
+            }.get(item_data["rarity"], 50)
+            
+            # Scale price with floor (5% increase per floor)
+            price = int(base_price * (1 + (floor - 1) * 0.05))
+            
+            shop_items.append({
+                "item_type": item_type,
+                "name": item_data["name"],
+                "description": item_data["description"],
+                "price": price,
+                "rarity": item_data["rarity"]
+            })
+        
+        return shop_items
     
     def _generate_start_room(self, floor: int) -> Room:
         """

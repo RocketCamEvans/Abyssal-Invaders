@@ -159,6 +159,7 @@
                                 <button id="move-south" class="btn btn-move move-south" disabled>⬇️ South</button>
                             </div>
                             <button id="move-up" class="btn btn-special" disabled>🔼 Ascend Staircase</button>
+                            <button id="enter-shop" class="btn btn-shop hidden">🏪 Enter Shop</button>
                         </div>
                     </div>
 
@@ -168,6 +169,19 @@
                             <h3>🏆 Leaderboard</h3>
                             <div id="leaderboard-list" class="leaderboard-list">
                                 <p class="loading">Loading...</p>
+                            </div>
+                        </div>
+
+                        <div class="minimap card">
+                            <h3>🗺️ Minimap - Floor <span id="minimap-floor">1</span></h3>
+                            <div id="minimap-container" class="minimap-container">
+                                <div id="minimap-grid" class="minimap-grid"></div>
+                            </div>
+                            <div class="minimap-legend">
+                                <span class="legend-item"><span class="legend-icon current">●</span> Current</span>
+                                <span class="legend-item"><span class="legend-icon visited">○</span> Visited</span>
+                                <span class="legend-item"><span class="legend-icon stairs">▲</span> Stairs</span>
+                                <span class="legend-item"><span class="legend-icon shop">🏪</span> Shop</span>
                             </div>
                         </div>
 
@@ -251,6 +265,36 @@
                     </div>
                     <div id="modal-item-list" class="modal-item-list">
                         <p class="empty-state">No items available</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ally Selection Modal -->
+            <div id="ally-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>👥 Choose Ally</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div id="modal-ally-list" class="modal-ally-list">
+                        <p class="empty-state">No allies available</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Shop Modal -->
+            <div id="shop-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>🏪 The Wandering Merchant</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="shop-info">
+                        <p class="shop-greeting">"Welcome, traveler! I have rare wares for brave souls like yourself..."</p>
+                        <p class="shop-gold">💰 Your Gold: <span id="shop-player-gold">0</span></p>
+                    </div>
+                    <div id="modal-shop-list" class="modal-shop-list">
+                        <p class="empty-state">Loading shop...</p>
                     </div>
                 </div>
             </div>

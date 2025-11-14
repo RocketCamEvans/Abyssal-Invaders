@@ -5,6 +5,7 @@ OpenAI API utilities for generating game content using the official OpenAI Pytho
 import os
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
+from llm_logger import log_llm_generation
 
 try:
     import openai
@@ -36,7 +37,8 @@ class OpenAIClient:
         self.client = openai.OpenAI(api_key=self.api_key)
     
     def generate_completion(self, prompt: str, model: str = "gpt-3.5-turbo", 
-                           max_tokens: int = 150, temperature: float = 0.7) -> Optional[str]:
+                           max_tokens: int = 150, temperature: float = 0.7,
+                           generation_type: str = "general") -> Optional[str]:
         """
         Generate a completion using OpenAI's chat completions API.
         
@@ -45,6 +47,7 @@ class OpenAIClient:
             model (str): The model to use (default: gpt-3.5-turbo)
             max_tokens (int): Maximum tokens in response
             temperature (float): Creativity level (0.0 to 1.0)
+            generation_type (str): Type of generation for logging
             
         Returns:
             Optional[str]: Generated text or None if error
@@ -59,7 +62,15 @@ class OpenAIClient:
                 temperature=temperature
             )
             
-            return response.choices[0].message.content.strip()
+            generated_text = response.choices[0].message.content.strip()
+            
+            # Log the generation to CSV for evaluation (simplified format)
+            log_llm_generation(
+                generated_text=generated_text,
+                prompt=prompt
+            )
+            
+            return generated_text
             
         except Exception as e:
             print(f"OpenAI API error: {e}")
@@ -91,7 +102,7 @@ Respond ONLY with a JSON object (no other text):
 
 The description MUST be under 200 characters. Be creative but concise! Higher floors = more dangerous enemies."""
 
-        response = self.generate_completion(prompt, max_tokens=120, temperature=0.85)
+        response = self.generate_completion(prompt, max_tokens=120, temperature=0.85, generation_type="enemy_content")
         
         if response:
             try:
@@ -140,7 +151,7 @@ The ally should feel appropriate for floor {floor} and be someone who would aid 
 Example format:
 {{"name": "Brave Scout", "description": "A seasoned explorer who recognizes a kindred spirit and offers to lend their bow to your cause."}}"""
 
-        response = self.generate_completion(prompt, max_tokens=100, temperature=0.8)
+        response = self.generate_completion(prompt, max_tokens=100, temperature=0.8, generation_type="ally_content")
         
         if response:
             try:
@@ -179,7 +190,7 @@ The room should feel appropriate for floor {floor}. Deeper floors should be more
 Example format:
 {{"name": "Echoing Sanctum", "description": "Ancient stone walls covered in faded murals whisper secrets of forgotten ages."}}"""
 
-        response = self.generate_completion(prompt, max_tokens=100, temperature=0.8)
+        response = self.generate_completion(prompt, max_tokens=100, temperature=0.8, generation_type="room_content")
         
         if response:
             try:
@@ -220,7 +231,7 @@ Context:
 
 Write 1-2 sentences that are exciting and immersive. Keep it concise but atmospheric."""
 
-        response = self.generate_completion(prompt, max_tokens=80, temperature=0.9)
+        response = self.generate_completion(prompt, max_tokens=80, temperature=0.9, generation_type="combat_description")
         
         if response:
             return response

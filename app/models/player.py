@@ -290,7 +290,7 @@ class Player:
             "floor": self.floor,
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
-            "allies": [ally.to_dict() for ally in self.allies],
+            "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in self.allies],
             "inventory": [item.to_dict() for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
