@@ -284,20 +284,26 @@ class TestMovementController:
     
     @patch('app.controllers.movement.random.randint')
     @patch('app.controllers.movement.random.choice')
-    @patch('app.controllers.movement.get_random_room_names')
-    @patch('app.controllers.movement.get_random_room_descriptions')
-    def test_generate_room(self, mock_descriptions, mock_names, mock_choice, mock_randint):
+    @patch('app.controllers.movement.random.random')
+    def test_generate_room(self, mock_random, mock_choice, mock_randint):
         """Test room generation."""
-        # Mock the random functions
-        mock_names.return_value = ["Test Room"]
-        mock_descriptions.return_value = ["A test room description"]
-        mock_choice.side_effect = ["Test Room", "A test room description"]
-        mock_randint.return_value = 0.3  # For encounter chance calculation
+        # Mock random to not trigger ally generation
+        mock_random.return_value = 0.1  # Above 8% ally threshold
         
-        with patch('app.utils.helpers.calculate_encounter_chance') as mock_calc:
-            mock_calc.return_value = 0.4
-            
-            room = self.controller._generate_room("test_room", 1)
+        # Mock the generation controller
+        with patch.object(self.controller, '_generation_controller', None):
+            with patch('app.controllers.generation.GenerationController') as mock_gen_class:
+                mock_gen_instance = Mock()
+                mock_gen_instance.generate_room_content.return_value = {
+                    "name": "Test Room",
+                    "description": "A test room description"
+                }
+                mock_gen_class.return_value = mock_gen_instance
+                
+                with patch('app.utils.helpers.calculate_encounter_chance') as mock_calc:
+                    mock_calc.return_value = 0.4
+                    
+                    room = self.controller._generate_room("test_room", 1)
         
         assert room.room_id == "test_room"
         assert room.name == "Test Room"
@@ -619,24 +625,28 @@ class TestMovementControllerEdgeCases:
         
         assert room.ally_data is None
     
-    def test_generate_room_ally_with_generation_controller(self):
-        """Test ally generation using GenerationController."""
-        mock_ally_content = {
-            "name": "Brave Knight",
-            "description": "A valiant knight ready to help"
-        }
-        
-        with patch('app.controllers.generation.GenerationController') as mock_gen_class:
-            mock_gen_instance = Mock()
-            mock_gen_instance.generate_ally_content.return_value = mock_ally_content
-            mock_gen_class.return_value = mock_gen_instance
+    def test_generate_room_ally_with_ally_model(self):
+        """Test ally generation using Ally model."""
+        with patch('app.models.ally.Ally.create_random_ally') as mock_create_ally:
+            mock_ally = Mock()
+            mock_ally.to_dict.return_value = {
+                "name": "Test Ally", 
+                "type": "attacker",
+                "value": 25,
+                "description": "A test ally",
+                "floor": 2,
+                "used": False,
+                "attack_power": 25
+            }
+            mock_create_ally.return_value = mock_ally
             
             ally_data = self.controller._generate_room_ally(2)
             
-            assert ally_data["name"] == "Brave Knight"
-            assert ally_data["description"] == "A valiant knight ready to help"
-            assert ally_data["attack_power"] == 14  # 10 + (2 * 2)
+            assert ally_data["name"] == "Test Ally"
+            assert ally_data["description"] == "A test ally"
+            assert ally_data["attack_power"] == 25
             assert ally_data["floor"] == 2
+            mock_create_ally.assert_called_once_with(2)
     
     def test_generate_start_room(self):
         """Test generation of start room."""

@@ -43,12 +43,12 @@ class TestInventoryController:
     def test_init(self):
         """Test InventoryController initialization."""
         controller = InventoryController()
-        assert controller.BASE_ITEM_FIND_CHANCE == 0.65
+        assert controller.BASE_ITEM_FIND_CHANCE == 0.08
     
     @patch('random.random')
     def test_roll_for_item_find_success(self, mock_random):
         """Test successful item finding."""
-        mock_random.return_value = 0.5  # Below 0.65 threshold
+        mock_random.return_value = 0.05  # Below 0.08 threshold
         
         with patch.object(Item, 'get_random_item_type', return_value='health_potion'):
             found, item = self.controller.roll_for_item_find(self.player, room_visited=False)
@@ -61,7 +61,7 @@ class TestInventoryController:
     @patch('random.random')
     def test_roll_for_item_find_failure(self, mock_random):
         """Test failed item finding."""
-        mock_random.return_value = 0.8  # Above 0.65 threshold
+        mock_random.return_value = 0.9  # Above 0.08 threshold
         
         found, item = self.controller.roll_for_item_find(self.player, room_visited=False)
         
@@ -97,7 +97,7 @@ class TestInventoryController:
         
         assert success is True
         assert result['error'] is False
-        assert self.player.health == 80  # 50 + 30
+        assert self.player.health == 65  # 50 + 15
         assert len(self.player.inventory) == 0  # Item consumed
         assert 'item_used' in result['data']
         assert 'player_stats' in result['data']
@@ -113,7 +113,7 @@ class TestInventoryController:
     def test_use_item_not_usable_in_combat(self):
         """Test using non-combat item during battle."""
         self.player.in_battle = True
-        item = Item('gold_coin_bag')  # Not usable in combat
+        item = Item('dirt_burger')  # Not usable in combat
         self.player.add_item(item)
         
         success, result = self.controller.use_item(self.player, item.item_id)
@@ -196,7 +196,7 @@ class TestInventoryController:
     def test_get_usable_combat_items(self):
         """Test getting combat-usable items."""
         item1 = Item('health_potion')  # Usable in combat
-        item2 = Item('gold_coin_bag')  # Not usable in combat
+        item2 = Item('gold_coin_bag')  # Now usable in combat
         item3 = Item('damage_bomb')    # Usable in combat
         
         self.player.add_item(item1)
@@ -205,13 +205,13 @@ class TestInventoryController:
         
         usable_items = self.controller.get_usable_combat_items(self.player)
         
-        assert len(usable_items) == 2
+        assert len(usable_items) == 3
         for item_info in usable_items:
             assert item_info['usable_in_combat'] is True
     
     def test_get_usable_combat_items_empty(self):
         """Test getting combat items when none are usable."""
-        item = Item('gold_coin_bag')  # Not usable in combat
+        item = Item('dirt_burger')  # Not usable in combat
         self.player.add_item(item)
         
         usable_items = self.controller.get_usable_combat_items(self.player)
@@ -266,7 +266,7 @@ class TestItemModel:
         result = item.use(player)
         
         assert result['success'] is True
-        assert player.health == 80  # 50 + 30
+        assert player.health == 65  # 50 + 15
         assert 'healed' in result
         
         # Test greater health potion
@@ -275,7 +275,7 @@ class TestItemModel:
         result = item.use(player)
         
         assert result['success'] is True
-        assert player.health == 90  # 30 + 60
+        assert player.health == 55  # 30 + 25
     
     def test_health_potion_max_health_cap(self):
         """Test health potion respects max health."""
@@ -299,7 +299,7 @@ class TestItemModel:
         result = item.use(player)
         
         assert result['success'] is True
-        assert player.attack_power == initial_attack + 15
+        assert player.attack_power == initial_attack + 10
         assert 'attack_boost' in result
         
         # Test defense boost
@@ -322,7 +322,7 @@ class TestItemModel:
         
         assert result['success'] is True
         assert 'damage_dealt' in result
-        assert result['damage_dealt'] == 40
+        assert result['damage_dealt'] == 28
         
         # Test poison vial
         enemy.health = enemy.max_health  # Reset health
@@ -331,7 +331,7 @@ class TestItemModel:
         
         assert result['success'] is True
         assert 'damage_dealt' in result
-        assert result['damage_dealt'] == 25
+        assert result['damage_dealt'] == 18
     
     def test_damage_item_without_enemy(self):
         """Test damage items fail without enemy."""
@@ -471,7 +471,7 @@ class TestInventoryControllerIntegration:
         success, result = self.controller.use_item(self.player, item.item_id)
         
         assert success is True
-        assert self.player.health == 70  # 40 + 30
+        assert self.player.health == 55  # 40 + 15
         assert len(self.player.inventory) == 0  # Item consumed
     
     def test_multiple_items_management(self):
@@ -504,13 +504,13 @@ class TestInventoryControllerIntegration:
         
         # Get usable combat items
         usable_items = self.controller.get_usable_combat_items(self.player)
-        # defense_boost is usable in combat, gold_coin_bag is not
-        assert len(usable_items) == 1
+        # defense_boost and gold_coin_bag are both usable in combat
+        assert len(usable_items) == 2
     
     @patch('random.random')
     def test_item_finding_workflow(self, mock_random):
         """Test the complete item finding workflow."""
-        mock_random.return_value = 0.5  # Ensure item is found
+        mock_random.return_value = 0.05  # Ensure item is found
         
         with patch.object(Item, 'get_random_item_type', return_value='attack_boost'):
             # Try to find item in new room
@@ -530,4 +530,4 @@ class TestInventoryControllerIntegration:
             success, use_result = self.controller.use_item(self.player, item.item_id)
             
             assert success is True
-            assert self.player.attack_power == initial_attack + 15
+            assert self.player.attack_power == initial_attack + 10

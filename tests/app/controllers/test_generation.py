@@ -239,8 +239,8 @@ class TestGenerationController:
         assert isinstance(result["description"], str)
         assert "floor 3" in result["description"]
     
-    def test_generate_room_content_with_openai_success(self):
-        """Test room content generation with successful OpenAI call."""
+    def test_generate_room_content_always_uses_templates(self):
+        """Test that room content generation always uses templates, never OpenAI."""
         mock_client = Mock()
         mock_client.generate_room_content.return_value = {
             "name": "AI Generated Room",
@@ -253,12 +253,20 @@ class TestGenerationController:
         
         result = controller.generate_room_content(4, "test_room")
         
-        assert result["name"] == "AI Generated Room"
-        assert result["description"] == "An AI-generated room description"
-        mock_client.generate_room_content.assert_called_once_with(4)
+        # Room generation should ALWAYS use templates, never OpenAI
+        assert "name" in result
+        assert "description" in result
+        assert isinstance(result["name"], str)
+        assert isinstance(result["description"], str)
+        # Verify OpenAI client was NOT called for room generation
+        mock_client.generate_room_content.assert_not_called()
+        
+        # Verify the name comes from intermediate templates (floor 4)
+        intermediate_names = controller.room_name_templates["intermediate"]
+        assert result["name"] in intermediate_names
     
-    def test_generate_room_content_with_openai_failure(self):
-        """Test room content generation when OpenAI fails."""
+    def test_generate_room_content_ignores_openai_errors(self):
+        """Test that room content generation ignores OpenAI completely, even if client has errors."""
         mock_client = Mock()
         mock_client.generate_room_content.side_effect = Exception("API Error")
         
@@ -266,13 +274,15 @@ class TestGenerationController:
         controller.use_openai = True
         controller.openai_client = mock_client
         
-        with patch('random.choice') as mock_choice:
-            mock_choice.side_effect = ["Crystal Cavern", "The air is thick"]  # Name and atmosphere
-            
-            result = controller.generate_room_content(4, "test_room")
+        result = controller.generate_room_content(4, "test_room")
         
-        assert result["name"] == "Crystal Cavern"
+        # Should succeed without any OpenAI call attempts
+        assert "name" in result
         assert "description" in result
+        assert isinstance(result["name"], str)
+        assert isinstance(result["description"], str)
+        # Verify OpenAI client was NOT called
+        mock_client.generate_room_content.assert_not_called()
     
     def test_generate_room_content_template_fallback(self):
         """Test room content generation using template fallback."""

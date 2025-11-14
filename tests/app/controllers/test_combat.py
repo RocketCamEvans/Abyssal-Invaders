@@ -16,6 +16,7 @@ from app.controllers.combat import CombatController
 from app.models.player import Player
 from app.models.enemy import Enemy
 from app.models.room import Room
+from app.models.ally import Ally
 
 
 class TestCombatController:
@@ -180,37 +181,36 @@ class TestCombatController:
         assert self.player.in_battle is False
     
     def test_execute_attack_with_ally(self):
-        """Test executing attack using ally special move."""
-        ally_data = {"name": "Test Ally", "attack_power": 15}
-        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict(), ally_data)
+        """Test executing attack using ally with ally_index."""
+        # Create real ally object
+        ally = Ally(name="Test Ally", ally_type="attacker", value=20, description="Test ally attacks!")
         
-        with patch.object(self.controller, '_execute_ally_attack') as mock_ally_attack:
-            with patch.object(self.controller, '_execute_enemy_attack') as mock_enemy_attack:
-                mock_ally_attack.return_value = 20
-                mock_enemy_attack.return_value = 8
-                
-                result = self.controller.execute_attack(self.player, use_ally=True)
+        # Add ally to player's allies list
+        self.player.allies = [ally]
+        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict())
+        
+        with patch('app.controllers.combat.calculate_damage_with_variance') as mock_damage:
+            mock_damage.return_value = 20
+            
+            result = self.controller.execute_attack(self.player, use_ally=True, ally_index=0)
         
         assert result["error"] is False
         assert self.player.ally_used is True
-        mock_ally_attack.assert_called_once()
+        assert ally.used is True
     
     def test_execute_attack_ally_already_used(self):
-        """Test executing attack when ally has already been used."""
-        ally_data = {"name": "Test Ally", "attack_power": 15}
-        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict(), ally_data)
-        self.player.ally_used = True
+        """Test executing attack when ally has already been used in this battle."""
+        ally = Ally(name="Test Ally", ally_type="attacker", value=15)
         
-        with patch.object(self.controller, '_execute_player_attack') as mock_player_attack:
-            with patch.object(self.controller, '_execute_enemy_attack') as mock_enemy_attack:
-                mock_player_attack.return_value = 15
-                mock_enemy_attack.return_value = 8
-                
-                result = self.controller.execute_attack(self.player, use_ally=True)
+        self.player.allies = [ally]
+        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict())
+        self.player.ally_used = True  # Mark ally as used in this battle
         
-        # Should use regular attack since ally was already used
-        mock_player_attack.assert_called_once()
-        assert result["error"] is False
+        result = self.controller.execute_attack(self.player, use_ally=True, ally_index=0)
+        
+        # Should return error since ally was already used in this battle
+        assert result["error"] is True
+        assert "You can only use one ally per battle!" in result["message"]
     
     def test_execute_flee_not_in_battle(self):
         """Test fleeing when not in battle."""
@@ -304,43 +304,33 @@ class TestCombatController:
         
         assert result is False
     
-    @patch('app.controllers.combat.calculate_damage_with_variance')
-    def test_execute_ally_attack(self, mock_damage):
-        """Test executing ally attack."""
-        ally_data = {"name": "Test Ally", "attack_power": 12}
-        self.player.current_ally = ally_data
-        battle_log = []
-        mock_damage.return_value = 20
+    def test_execute_attack_with_invalid_ally_index(self):
+        """Test executing attack with invalid ally index."""
+        self.player.allies = []
+        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict())
         
-        with patch.object(self.controller, '_check_critical_hit') as mock_crit:
-            mock_crit.return_value = False
-            
-            damage = self.controller._execute_ally_attack(self.player, self.enemy, battle_log)
+        result = self.controller.execute_attack(self.player, use_ally=True, ally_index=0)
         
-        assert damage == 20
-        assert len(battle_log) == 1
-        assert battle_log[0]["type"] == "ally_attack"
-        assert battle_log[0]["attacker"] == f"{self.player.name} with {ally_data['name']}"
-        assert battle_log[0]["is_critical"] is False
+        # Should use regular attack since no allies available
+        assert result["error"] is False
+        assert not self.player.ally_used
     
-    @patch('app.controllers.combat.calculate_damage_with_variance')
-    def test_execute_ally_attack_critical(self, mock_damage):
-        """Test executing ally attack with critical hit."""
-        ally_data = {"name": "Test Ally", "attack_power": 12}
-        self.player.current_ally = ally_data
-        battle_log = []
-        mock_damage.return_value = 30  # Critical damage
+    def test_execute_attack_with_healer_ally(self):
+        """Test executing attack with healer type ally."""
+        ally = Ally(name="Test Healer", ally_type="healer", value=15, description="Healing light surrounds you!")
         
-        with patch.object(self.controller, '_check_critical_hit') as mock_crit:
-            with patch.object(self.controller, '_generate_critical_hit_description') as mock_desc:
-                mock_crit.return_value = True
-                mock_desc.return_value = "Critical strike!"
-                
-                damage = self.controller._execute_ally_attack(self.player, self.enemy, battle_log)
+        self.player.allies = [ally]
+        original_health = 80
+        self.player.health = original_health
+        self.player.start_battle(self.enemy.to_dict(), self.room.to_dict())
         
-        assert damage == 30
-        assert battle_log[0]["is_critical"] is True
-        assert "CRITICAL HIT" in battle_log[0]["description"]
+        result = self.controller.execute_attack(self.player, use_ally=True, ally_index=0)
+        
+        assert result["error"] is False
+        assert self.player.ally_used is True
+        # Player should be healed and then enemy attacks, so health should be > original but < original + healing
+        assert self.player.health > original_health  # Should be net positive from healing
+        assert ally.used is True
     
     @patch('app.controllers.combat.calculate_damage_with_variance')
     def test_execute_player_attack(self, mock_damage):
@@ -487,22 +477,19 @@ class TestCombatController:
     
     def test_use_ally_in_combat_valid(self):
         """Test using ally with valid ally object."""
-        # Create a mock ally
-        mock_ally = Mock()
-        mock_ally.is_available.return_value = True
-        mock_ally.use_attack.return_value = 20
-        mock_ally.name = "Test Ally"
-        mock_ally.description = "A helpful ally"
+        # Create a real ally
+        ally = Ally(name="Test Ally", ally_type="attacker", value=20, description="A helpful ally")
         
-        self.player.allies = [mock_ally]
+        self.player.allies = [ally]
         
         success, result = self.controller.use_ally_in_combat(self.player, 0, self.enemy)
         
         assert success is True
         assert result["error"] is False
         assert result["data"]["ally_name"] == "Test Ally"
-        assert result["data"]["damage_dealt"] == 20
-        assert len(self.player.allies) == 0  # Ally should be removed after use
+        # Allies should remain in the list (they are permanent party members)
+        assert len(self.player.allies) == 1
+        assert ally.used is True
     
     @patch('app.controllers.combat.calculate_damage_with_variance')
     @patch('app.controllers.combat.roll_dice')
