@@ -111,7 +111,9 @@ class CombatController:
             "player": {
                 "health": f"{player.health}/{player.max_health}",
                 "in_battle": player.in_battle,
-                "is_alive": player.is_alive()
+                "is_alive": player.is_alive(),
+                "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                "ally_used": player.ally_used
             },
             "enemy": enemy.to_dict(),
             "ally": ally_data
@@ -236,7 +238,9 @@ class CombatController:
                     "gold": player.gold,
                     "level": player.level,
                     "in_battle": player.in_battle,
-                    "is_alive": player.is_alive()
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                    "ally_used": player.ally_used
                 },
                 "enemy": enemy.to_dict()
             }
@@ -273,7 +277,9 @@ class CombatController:
                     "gold": player.gold,
                     "level": player.level,
                     "in_battle": player.in_battle,
-                    "is_alive": player.is_alive()
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                    "ally_used": player.ally_used
                 },
                 "enemy": enemy.to_dict()
             }, "Player defeated!")
@@ -286,7 +292,9 @@ class CombatController:
                 "gold": player.gold,
                 "level": player.level,
                 "in_battle": player.in_battle,
-                "is_alive": player.is_alive()
+                "is_alive": player.is_alive(),
+                "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                "ally_used": player.ally_used
             },
             "enemy": enemy.to_dict(),
             "ally_available": player.current_ally and not player.ally_used
@@ -321,7 +329,9 @@ class CombatController:
                 "gold": player.gold,
                 "level": player.level,
                 "in_battle": player.in_battle,
-                "is_alive": player.is_alive()
+                "is_alive": player.is_alive(),
+                "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                "ally_used": player.ally_used
             }
         }
         

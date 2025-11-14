@@ -1000,7 +1000,7 @@ def purchase_item():
         
         # Add item to inventory
         new_item = Item(shop_item['item_type'])
-        player.add_to_inventory(new_item.to_dict())
+        player.add_item(new_item)
         
         # Mark item as purchased
         current_room.purchase_item(item_name)
@@ -1014,7 +1014,7 @@ def purchase_item():
         return create_success_response({
             "purchased_item": shop_item,
             "gold_remaining": player.gold,
-            "inventory": player.inventory
+            "inventory": [item.to_dict() for item in player.inventory]
         }, f"Purchased {item_name} for {shop_item['price']} gold!")
         
     except Exception as e:

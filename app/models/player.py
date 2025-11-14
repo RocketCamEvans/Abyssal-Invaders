@@ -174,6 +174,12 @@ class Player:
         self.battle_room = room_data
         self.current_ally = ally_data
         self.ally_used = False
+        
+        # Reset all allies' used status at the start of each battle
+        # This allows allies to be used once per battle, not once ever
+        for ally in self.allies:
+            if hasattr(ally, 'used'):
+                ally.used = False
     
     def end_battle(self):
         """
