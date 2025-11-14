@@ -21,6 +21,9 @@ class Room:
         self.encounter_chance = 0.3  # 30% chance of encounter
         self.has_been_visited = False
         self.ally_data = None  # Ally data if room contains an ally
+        self.is_shop = False  # Whether this room is a shop
+        self.shop_items = []  # Items available in shop
+        self.purchased_items = set()  # Items already purchased from this shop
         
     def add_connection(self, direction: str, room_id: str):
         """
@@ -102,6 +105,54 @@ class Room:
         self.ally_data = None  # Remove ally after taking
         return ally
     
+    def set_shop(self, items: List[Dict] = None):
+        """
+        Set this room as a shop with available items.
+        
+        Args:
+            items (List[Dict]): List of items available for purchase
+        """
+        self.is_shop = True
+        self.encounter_chance = 0.0  # Shops never have encounters
+        if items:
+            self.shop_items = items
+    
+    def purchase_item(self, item_name: str) -> bool:
+        """
+        Mark an item as purchased in this shop.
+        
+        Args:
+            item_name (str): Name of the item purchased
+            
+        Returns:
+            bool: True if purchase recorded, False if already purchased
+        """
+        if item_name in self.purchased_items:
+            return False
+        self.purchased_items.add(item_name)
+        return True
+    
+    def is_item_purchased(self, item_name: str) -> bool:
+        """
+        Check if an item has been purchased.
+        
+        Args:
+            item_name (str): Name of the item to check
+            
+        Returns:
+            bool: True if already purchased, False otherwise
+        """
+        return item_name in self.purchased_items
+    
+    def get_available_shop_items(self) -> List[Dict]:
+        """
+        Get list of items still available for purchase.
+        
+        Returns:
+            List[Dict]: List of unpurchased items
+        """
+        return [item for item in self.shop_items if item['name'] not in self.purchased_items]
+    
     def roll_for_encounter(self) -> bool:
         """
         Roll to see if an encounter occurs in this room.
@@ -146,7 +197,10 @@ class Room:
             "has_staircase": self.has_staircase,
             "encounter_chance": self.encounter_chance,
             "has_been_visited": self.has_been_visited,
-            "ally_data": self.ally_data
+            "ally_data": self.ally_data,
+            "is_shop": self.is_shop,
+            "shop_items": self.shop_items,
+            "purchased_items": list(self.purchased_items)
         }
     
     @classmethod
@@ -171,6 +225,9 @@ class Room:
         room.encounter_chance = data["encounter_chance"]
         room.has_been_visited = data["has_been_visited"]
         room.ally_data = data.get("ally_data", None)  # Backward compatibility
+        room.is_shop = data.get("is_shop", False)
+        room.shop_items = data.get("shop_items", [])
+        room.purchased_items = set(data.get("purchased_items", []))
         return room
     
     def get_room_info(self) -> dict:
@@ -188,5 +245,7 @@ class Room:
             "available_directions": self.get_available_directions(),
             "has_staircase": self.has_staircase,
             "has_ally": self.has_ally(),
-            "ally_name": self.ally_data.get('name') if self.ally_data else None
+            "ally_name": self.ally_data.get('name') if self.ally_data else None,
+            "is_shop": self.is_shop,
+            "has_been_visited": self.has_been_visited
         }

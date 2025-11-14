@@ -117,13 +117,14 @@ class CombatController:
             "ally": ally_data
         }, "Battle initiated")
     
-    def execute_attack(self, player: Player, use_ally: bool = False) -> Dict[str, Any]:
+    def execute_attack(self, player: Player, use_ally: bool = False, ally_index: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute a player attack in turn-based combat.
         
         Args:
             player (Player): Player object
             use_ally (bool): Whether to use ally special attack
+            ally_index (Optional[int]): Index of the ally to use from player's allies list
             
         Returns:
             Dict[str, Any]: Attack result
@@ -137,15 +138,85 @@ class CombatController:
         battle_log = []
         
         # Player attack (with ally if requested)
-        if use_ally and player.current_ally and not player.ally_used:
-            damage = self._execute_ally_attack(player, enemy, battle_log)
+        if use_ally and ally_index is not None and 0 <= ally_index < len(player.allies):
+            print(f"DEBUG COMBAT: Player has {len(player.allies)} allies, using index {ally_index}")
+            
+            # Check if ally was already used this battle
+            if player.ally_used:
+                return create_error_response("You can only use one ally per battle!")
+            
+            # Get the ally from player's allies list
+            from ..models.ally import Ally
+            ally_data = player.allies[ally_index]
+            
+            print(f"DEBUG COMBAT: Ally data type: {type(ally_data)}")
+            
+            # Handle both Ally objects and dicts
+            if isinstance(ally_data, Ally):
+                ally = ally_data
+            elif isinstance(ally_data, dict):
+                ally = Ally.from_dict(ally_data)
+            else:
+                return create_error_response("Invalid ally data")
+            
+            print(f"DEBUG COMBAT: Using ally {ally.name}")
+            
+            if not ally.is_available():
+                return create_error_response("This ally has already been used!")
+            
+            # Use the ally's ability
+            result = ally.use_ability()
+            
+            # Apply ally effect based on type
+            if result['type'] == 'healer':
+                # Heal player
+                old_health = player.health
+                player.heal(result['value'])
+                actual_heal = player.health - old_health
+                battle_log.append({
+                    "type": "ally_heal",
+                    "ally": ally.name,
+                    "heal_amount": actual_heal,
+                    "description": f"{result['description']} You recover {actual_heal} HP! {result['message']}"
+                })
+            elif result['type'] == 'attacker':
+                # Damage enemy
+                damage = calculate_damage_with_variance(result['value'])
+                enemy.take_damage(damage)
+                battle_log.append({
+                    "type": "ally_attack",
+                    "attacker": ally.name,
+                    "target": enemy.name,
+                    "damage": damage,
+                    "description": f"{result['description']} {ally.name} deals {damage} damage! {result['message']}"
+                })
+            elif result['type'] == 'skipper':
+                # Skip enemy turn
+                enemy.skip_next_turn = True
+                battle_log.append({
+                    "type": "ally_skip",
+                    "ally": ally.name,
+                    "target": enemy.name,
+                    "description": f"{result['description']} {result['message']}"
+                })
+            
+            # Mark ally as used this battle (but don't remove from player's list - allies are permanent!)
             player.ally_used = True
+            
+            # Update the ally in player's allies list to persist the used state
+            player.allies[ally_index] = ally
+            
+            print(f"DEBUG COMBAT: After using ally, player still has {len(player.allies)} allies")
+            
         else:
             damage = self._execute_player_attack(player, enemy, battle_log)
         
         # Check if enemy is defeated
         if not enemy.is_alive():
             reward = self._handle_enemy_defeat(player, enemy)
+            
+            print(f"DEBUG COMBAT END: Enemy defeated. Player has {len(player.allies)} allies")
+            print(f"DEBUG COMBAT END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
             
             # Get room information before ending battle
             room_data = player.battle_room
@@ -182,6 +253,9 @@ class CombatController:
         
         # Enemy counterattack
         self._execute_enemy_attack(player, enemy, battle_log)
+        
+        print(f"DEBUG COMBAT TURN END: After enemy attack, player has {len(player.allies)} allies")
+        print(f"DEBUG COMBAT TURN END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
         # Update stored enemy data
         player.current_enemy = enemy.to_dict()
@@ -275,17 +349,19 @@ class CombatController:
         """
         if self.openai_client:
             try:
-                prompt = f"""You are a fantasy narrator with charm and wit. Describe the start of a battle in 2 sentences maximum.
+                prompt = f"""You are narrating a whimsical fantasy battle in a cursed office building!
 
-Player: {player.name} (Health: {player.health}, Attack: {player.attack_power}, Defense: {player.defense})
+An evil wizard turned Rocket Software into a monster-filled labyrinth. Employees fight back with fantasy powers!
+
+Player: {player.name} (HP: {player.health})
 Enemy: {enemy.name} - {enemy.description}
-Location: {room.name} - {room.description}
+Location: {room.name}
 
-Write a brief, atmospheric description of the encounter starting. Make it feel like a classic fantasy adventure with a touch of personality."""
+Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). Be fantastical, slightly funny, and whimsical. Keep it brief!"""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=80, temperature=0.8)
-                if description:
-                    return description
+                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.8, generation_type="battle_description")
+                if description and len(description) <= 250:
+                    return description[:250]  # Enforce limit
             except Exception as e:
                 print(f"OpenAI battle description failed: {e}")
         
@@ -308,21 +384,18 @@ Write a brief, atmospheric description of the encounter starting. Make it feel l
         """
         if self.openai_client:
             try:
-                attacker_type = "heroic adventurer" if is_player else "fearsome creature"
-                prompt = f"""You are a fantasy combat narrator. A {attacker_type} named {attacker_name} just scored a critical hit against {target_name}, dealing {damage} damage.
+                attacker_type = "office warrior" if is_player else "cursed office creature"
+                prompt = f"""CRITICAL HIT in the cursed Rocket Software building!
 
-Write a brief, exciting description (1-2 sentences) explaining WHY this was a critical hit. Focus on skill, luck, or a perfect strike. Make it feel epic and satisfying.
+{attacker_name} ({attacker_type}) lands a devastating blow on {target_name} for {damage} damage!
 
-Examples:
-- "A perfect strike finds the gap in armor!"
-- "Lightning-fast reflexes catch the enemy off-guard!"
-- "A surge of adrenaline guides the blade true!"
+Write a SHORT, exciting critical hit description (MAX 150 characters). Be whimsical, slightly funny, and fantastical. Explain what made this hit so perfect!
 
-Keep it short and punchy."""
+Keep it BRIEF and punchy!"""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=50, temperature=0.9)
-                if description:
-                    return description
+                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.9, generation_type="critical_hit")
+                if description and len(description) <= 200:
+                    return description[:200]  # Enforce limit
             except Exception as e:
                 print(f"OpenAI critical hit description failed: {e}")
         
@@ -347,7 +420,7 @@ Keep it short and punchy."""
     
     def _execute_ally_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
-        Execute ally special attack.
+        Execute ally special ability (attack, heal, or skip).
         
         Args:
             player (Player): Player object
@@ -355,40 +428,67 @@ Keep it short and punchy."""
             battle_log (list): Battle log to append to
             
         Returns:
-            int: Damage dealt
+            int: Damage dealt (0 for healers and skippers)
         """
         ally_data = player.current_ally
-        base_damage = player.attack_power
-        ally_bonus = ally_data.get('attack_power', 15)  # Allies give bonus damage
-        total_damage = base_damage + ally_bonus
+        ally_type = ally_data.get('type', 'attacker')
+        ally_value = ally_data.get('value', 0)
+        ally_name = ally_data.get('name', 'Unknown Ally')
         
-        # Check for critical hit
-        is_critical = self._check_critical_hit()
-        if is_critical:
-            total_damage = int(total_damage * 1.5)  # 50% bonus for critical
+        # Create leaving work message
+        leaving_message = f"{ally_name} has put in their hours and is leaving work."
         
-        # Add some variance
-        damage = calculate_damage_with_variance(total_damage)
-        enemy.take_damage(damage)
+        damage_dealt = 0
         
-        # Generate description
-        base_description = f"{ally_data['name']} unleashes their special move, dealing {damage} damage!"
-        if is_critical:
-            crit_desc = self._generate_critical_hit_description(ally_data['name'], enemy.name, damage, True)
-            description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
-        else:
-            description = base_description
+        if ally_type == 'healer':
+            # Heal the player
+            heal_amount = ally_value
+            old_health = player.health
+            player.heal(heal_amount)
+            actual_heal = player.health - old_health
+            
+            description = f"{ally_data['description']} You recover {actual_heal} HP! {leaving_message}"
+            
+            battle_log.append({
+                "type": "ally_heal",
+                "ally": ally_name,
+                "heal_amount": actual_heal,
+                "description": description
+            })
+            
+        elif ally_type == 'attacker':
+            # Deal damage to enemy
+            damage_dealt = ally_value
+            
+            # Add some variance
+            damage_dealt = calculate_damage_with_variance(damage_dealt)
+            enemy.take_damage(damage_dealt)
+            
+            description = f"{ally_data['description']} {ally_name} deals {damage_dealt} damage! {leaving_message}"
+            
+            battle_log.append({
+                "type": "ally_attack",
+                "attacker": ally_name,
+                "target": enemy.name,
+                "damage": damage_dealt,
+                "is_critical": False,
+                "description": description
+            })
+            
+        elif ally_type == 'skipper':
+            # Skip enemy's next turn
+            enemy.skip_next_turn = True  # We'll need to add this flag to Enemy model
+            
+            description = f"{ally_data['description']} The enemy is stunned and will skip their next turn! {leaving_message}"
+            
+            battle_log.append({
+                "type": "ally_skip",
+                "ally": ally_name,
+                "target": enemy.name,
+                "description": description
+            })
         
-        battle_log.append({
-            "type": "ally_attack",
-            "attacker": f"{player.name} with {ally_data['name']}",
-            "target": enemy.name,
-            "damage": damage,
-            "is_critical": is_critical,
-            "description": description
-        })
-        
-        return damage
+        return damage_dealt
     
     def _execute_player_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
@@ -443,6 +543,16 @@ Keep it short and punchy."""
         Returns:
             int: Damage dealt
         """
+        # Check if enemy should skip this turn
+        if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn:
+            enemy.skip_next_turn = False  # Reset the flag
+            battle_log.append({
+                "type": "enemy_skip",
+                "attacker": enemy.name,
+                "description": f"{enemy.name} is stunned and skips their turn!"
+            })
+            return 0
+        
         # Check for critical hit
         is_critical = self._check_critical_hit()
         base_damage = enemy.attack_power
@@ -592,8 +702,8 @@ Keep it short and punchy."""
         ally_damage = ally.use_attack()
         enemy_survived = enemy.take_damage(ally_damage)
         
-        # Remove ally from player's list (one-time use)
-        player.allies.pop(ally_index)
+        # Don't remove ally from player's list - allies are permanent party members!
+        # They just can't be used again in the same battle
         
         result_data = {
             "ally_name": ally.name,

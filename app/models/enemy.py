@@ -16,18 +16,18 @@ class Enemy:
         self.description = description or "A mysterious creature lurks in the shadows."
         self.floor = floor
         
-        # Scale stats based on floor level (reduced for better balance)
-        base_health = 20 + (floor * 6)  # Reduced from 30 + floor * 10
-        base_attack = 5 + (floor * 1.5)  # Reduced from 8 + floor * 2
-        base_defense = 1 + (floor * 0.5)  # Reduced from 2 + floor
-        base_gold = 15 + (floor * 8)  # Increased gold reward
-        base_exp = 25 + (floor * 10)  # Experience reward
+        # Scale stats based on floor level - slightly increased difficulty
+        base_health = 22 + (floor * 7)  # Increased from 20 + floor * 6
+        base_attack = 6 + (floor * 1.8)  # Increased from 5 + floor * 1.5
+        base_defense = 1 + (floor * 0.6)  # Increased from 1 + floor * 0.5
+        base_gold = 15 + (floor * 8)  # Gold reward unchanged
+        base_exp = 25 + (floor * 10)  # Experience reward unchanged
         
         # Add some randomness to stats
-        self.max_health = int(base_health + random.randint(-3, 5))
+        self.max_health = int(base_health + random.randint(-3, 6))
         self.health = self.max_health
-        self.attack_power = int(base_attack + random.randint(-1, 3))
-        self.defense = int(base_defense + random.randint(0, 1))
+        self.attack_power = int(base_attack + random.randint(-1, 4))
+        self.defense = int(base_defense + random.randint(0, 2))
         self.gold_reward = base_gold + random.randint(0, floor * 2)
         self.exp_reward = base_exp + random.randint(0, floor * 5)
         
@@ -38,6 +38,9 @@ class Enemy:
         self.defense = max(0, self.defense)
         self.gold_reward = max(10, self.gold_reward)
         self.exp_reward = max(20, self.exp_reward)
+        
+        # Status effects
+        self.skip_next_turn = False  # For skipper allies
     
     def take_damage(self, damage: int) -> bool:
         """

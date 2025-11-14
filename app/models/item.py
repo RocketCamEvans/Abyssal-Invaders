@@ -14,68 +14,85 @@ class Item:
     # Item types and their effects
     ITEM_TYPES = {
         "health_potion": {
-            "name": "Health Potion",
-            "description": "Restores health when used",
+            "name": "Emergency Coffee",
+            "description": "A steaming cup of extra-strong office coffee. Restores 30 HP.",
             "effect_type": "heal",
-            "effect_value": 30,
-            "usable_in_combat": True,
-            "rarity": "common"
-        },
-        "greater_health_potion": {
-            "name": "Greater Health Potion",
-            "description": "Restores a large amount of health",
-            "effect_type": "heal",
-            "effect_value": 60,
-            "usable_in_combat": True,
-            "rarity": "uncommon"
-        },
-        "attack_boost": {
-            "name": "Attack Elixir",
-            "description": "Temporarily increases attack power for one battle",
-            "effect_type": "attack_boost",
             "effect_value": 15,
             "usable_in_combat": True,
-            "rarity": "uncommon"
+            "rarity": "common",
+            "auto_consume": False
+        },
+        "greater_health_potion": {
+            "name": "Energy Drink",
+            "description": "An oversized can of caffeinated chaos. Restores 60 HP.",
+            "effect_type": "heal",
+            "effect_value": 25,
+            "usable_in_combat": True,
+            "rarity": "uncommon",
+            "auto_consume": False
+        },
+        "attack_boost": {
+            "name": "Motivational Poster",
+            "description": "An inspiring poster from HR. Increases attack by 15 for this battle.",
+            "effect_type": "attack_boost",
+            "effect_value": 10,
+            "usable_in_combat": True,
+            "rarity": "uncommon",
+            "auto_consume": False
         },
         "defense_boost": {
-            "name": "Iron Skin Tonic",
-            "description": "Temporarily increases defense for one battle",
+            "name": "Safety Manual",
+            "description": "A thick workplace safety handbook. Increases defense by 10 for this battle.",
             "effect_type": "defense_boost",
             "effect_value": 10,
             "usable_in_combat": True,
-            "rarity": "uncommon"
+            "rarity": "uncommon",
+            "auto_consume": False
         },
         "damage_bomb": {
-            "name": "Explosive Bomb",
-            "description": "Deals direct damage to enemy",
+            "name": "Exploding Printer Cartridge",
+            "description": "A volatile ink cartridge. Deals 40 damage to enemy.",
             "effect_type": "damage",
-            "effect_value": 40,
+            "effect_value": 28,
             "usable_in_combat": True,
-            "rarity": "rare"
+            "rarity": "rare",
+            "auto_consume": False
         },
         "poison_vial": {
-            "name": "Poison Vial",
-            "description": "Deals damage over time to enemy",
+            "name": "Expired Vending Machine Soda",
+            "description": "Suspiciously fizzy. Deals 25 damage to enemy.",
             "effect_type": "damage",
-            "effect_value": 25,
+            "effect_value": 18,
             "usable_in_combat": True,
-            "rarity": "uncommon"
+            "rarity": "uncommon",
+            "auto_consume": False
         },
         "escape_scroll": {
-            "name": "Scroll of Escape",
-            "description": "Guarantees successful flee from combat",
+            "name": "Emergency Exit Map",
+            "description": "A laminated evacuation route. Guarantees successful flee from combat.",
             "effect_type": "guaranteed_flee",
             "effect_value": 0,
             "usable_in_combat": True,
-            "rarity": "rare"
+            "rarity": "rare",
+            "auto_consume": False
         },
         "gold_coin_bag": {
-            "name": "Bag of Gold Coins",
-            "description": "Contains extra gold",
+            "name": "Petty Cash Envelope",
+            "description": "Contains bonus office funds. Grants 50 gold instantly!",
             "effect_type": "gold",
             "effect_value": 50,
+            "usable_in_combat": True,
+            "rarity": "common",
+            "auto_consume": False
+        },
+        "dirt_burger": {
+            "name": "Dirt Burger",
+            "description": "This dirt burger is not fit for consumption, but you HAVE to eat it... Permanently reduces MAX HP by 1!",
+            "effect_type": "curse_max_hp",
+            "effect_value": -1,
             "usable_in_combat": False,
-            "rarity": "common"
+            "rarity": "cursed",
+            "auto_consume": True
         }
     }
     
@@ -101,6 +118,7 @@ class Item:
         self.effect_value = item_data["effect_value"]
         self.usable_in_combat = item_data["usable_in_combat"]
         self.rarity = item_data["rarity"]
+        self.auto_consume = item_data.get("auto_consume", False)
     
     def use(self, player, enemy=None):
         """
@@ -156,6 +174,19 @@ class Item:
             player.add_gold(self.effect_value)
             result["message"] = f"Used {self.name} and gained {self.effect_value} gold!"
             result["gold_gained"] = self.effect_value
+            
+        elif self.effect_type == "curse_max_hp":
+            # Reduce max HP permanently
+            old_max_hp = player.max_health
+            player.max_health += self.effect_value  # effect_value is negative
+            if player.max_health < 1:
+                player.max_health = 1
+            # Ensure current health doesn't exceed new max
+            if player.health > player.max_health:
+                player.health = player.max_health
+            hp_lost = old_max_hp - player.max_health
+            result["message"] = f"💀 You consumed {self.name}! Your MAX HP has been permanently reduced by {hp_lost}!"
+            result["max_hp_reduced"] = hp_lost
         
         return result
     
@@ -191,7 +222,8 @@ class Item:
             "effect_type": self.effect_type,
             "effect_value": self.effect_value,
             "usable_in_combat": self.usable_in_combat,
-            "rarity": self.rarity
+            "rarity": self.rarity,
+            "auto_consume": self.auto_consume
         }
     
     @classmethod
@@ -227,7 +259,8 @@ class Item:
         rarity_weights = {
             "common": max(1, 10 - floor),      # Common items become less frequent
             "uncommon": 5 + (floor // 2),      # Uncommon items scale moderately
-            "rare": floor                      # Rare items scale with floor
+            "rare": floor,                     # Rare items scale with floor
+            "cursed": 1                        # Cursed items are always rare
         }
         
         # Build weighted list of item types

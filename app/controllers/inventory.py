@@ -14,7 +14,7 @@ class InventoryController:
     """
     
     # Chance to find an item when moving (if no encounter)
-    BASE_ITEM_FIND_CHANCE = 0.65  # 65% chance to find an item
+    BASE_ITEM_FIND_CHANCE = 0.08  # 8% chance to find an item (greatly reduced)
     
     def __init__(self):
         """
@@ -56,15 +56,34 @@ class InventoryController:
         Returns:
             Dict[str, Any]: Response data
         """
-        player.add_item(item)
-        
-        response_data = {
-            "item_added": item.get_item_info(),
-            "inventory_size": len(player.inventory),
-            "message": f"Found {item.name}!"
-        }
-        
-        return create_success_response(response_data, f"Found {item.name}!")
+        # Check if item auto-consumes
+        if item.auto_consume:
+            # Use the item immediately without adding to inventory
+            use_result = item.use(player, None)
+            
+            response_data = {
+                "item_found": item.get_item_info(),
+                "auto_consumed": True,
+                "use_result": use_result,
+                "message": f"Found {item.name}! It was automatically consumed: {use_result['message']}",
+                "player_stats": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "max_health": player.max_health
+                }
+            }
+            
+            return create_success_response(response_data, response_data["message"])
+        else:
+            # Add to inventory normally
+            player.add_item(item)
+            
+            response_data = {
+                "item_added": item.get_item_info(),
+                "inventory_size": len(player.inventory),
+                "message": f"Found {item.name}!"
+            }
+            
+            return create_success_response(response_data, f"Found {item.name}!")
     
     def use_item(self, player: Player, item_id: str, enemy: Optional[Enemy] = None) -> Tuple[bool, Dict[str, Any]]:
         """
