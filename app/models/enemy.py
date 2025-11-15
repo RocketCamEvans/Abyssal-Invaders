@@ -102,7 +102,8 @@ class Enemy:
             "attack_power": self.attack_power,
             "defense": self.defense,
             "gold_reward": self.gold_reward,
-            "exp_reward": self.exp_reward
+            "exp_reward": self.exp_reward,
+            "skip_next_turn": self.skip_next_turn
         }
     
     @classmethod
@@ -127,6 +128,7 @@ class Enemy:
         enemy.defense = data["defense"]
         enemy.gold_reward = data["gold_reward"]
         enemy.exp_reward = data.get("exp_reward", 25 + (data["floor"] * 10))  # Backward compatibility
+        enemy.skip_next_turn = data.get("skip_next_turn", False)  # Restore skip status
         return enemy
     
     @classmethod

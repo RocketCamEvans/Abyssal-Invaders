@@ -193,8 +193,8 @@ class CombatController:
                     "description": f"{result['description']} {ally.name} deals {damage} damage! {result['message']}"
                 })
             elif result['type'] == 'skipper':
-                # Skip enemy turn
-                enemy.skip_next_turn = True
+                # Skip enemy turn - set to 2 so enemy skips this turn and the next
+                enemy.skip_next_turn = 2
                 battle_log.append({
                     "type": "ally_skip",
                     "ally": ally.name,
@@ -486,8 +486,8 @@ Keep it BRIEF and punchy!"""
             })
             
         elif ally_type == 'skipper':
-            # Skip enemy's next turn
-            enemy.skip_next_turn = True  # We'll need to add this flag to Enemy model
+            # Skip enemy's next 2 turns (this turn + next turn)
+            enemy.skip_next_turn = 2
             
             description = f"{ally_data['description']} The enemy is stunned and will skip their next turn! {leaving_message}"
             
@@ -555,7 +555,13 @@ Keep it BRIEF and punchy!"""
         """
         # Check if enemy should skip this turn
         if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn:
-            enemy.skip_next_turn = False  # Reset the flag
+            if isinstance(enemy.skip_next_turn, int):
+                # Decrement the counter
+                enemy.skip_next_turn -= 1
+            else:
+                # Legacy boolean support - convert to counter
+                enemy.skip_next_turn = 0
+            
             battle_log.append({
                 "type": "enemy_skip",
                 "attacker": enemy.name,

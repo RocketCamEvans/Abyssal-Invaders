@@ -23,6 +23,14 @@
                     <p>Enter your name to begin your journey into the abyss...</p>
                     <input type="text" id="player-name" placeholder="Enter your name" maxlength="30" />
                     <button id="start-game-btn" class="btn btn-primary">Begin Adventure</button>
+                    
+                    <div class="continue-game-section">
+                        <h3>Continue Existing Game</h3>
+                        <p>Enter your session ID to resume a previous game:</p>
+                        <input type="text" id="continue-session-id" placeholder="Enter Session ID" maxlength="50" />
+                        <button id="continue-game-btn" class="btn btn-secondary">Continue Game</button>
+                    </div>
+                    
                     <div class="start-info">
                         <h3>How to Play:</h3>
                         <ul>
@@ -44,7 +52,10 @@
                     <!-- Left Panel - Player Stats -->
                     <div class="left-panel">
                         <div class="player-info card">
-                            <h3>🧙 <span id="player-name-display">Adventurer</span></h3>
+                            <div class="player-header">
+                                <img id="player-avatar" class="player-avatar" src="" alt="Player Avatar" />
+                                <h3>🧙 <span id="player-name-display">Adventurer</span></h3>
+                            </div>
                             <div class="stat-row">
                                 <span class="stat-label">❤️ Health:</span>
                                 <div class="health-bar-container">
@@ -96,6 +107,7 @@
                             <button id="view-stats-btn" class="btn btn-info btn-full">📊 View Stats</button>
                             <button id="view-scores-btn" class="btn btn-info btn-full">🏆 Leaderboard</button>
                             <button id="submit-score-btn" class="btn btn-warning btn-full">📤 Submit Score</button>
+                            <button id="show-session-btn" class="btn btn-secondary btn-full">🔑 Show Session ID</button>
                             <button id="new-game-btn" class="btn btn-danger btn-full">🔄 New Game</button>
                         </div>
                     </div>
@@ -109,8 +121,29 @@
                             <div id="room-features" class="room-features"></div>
                             
                             <div id="combat-area" class="combat-area hidden">
+                                <div class="combat-sprites-row">
+                                    <div class="player-sprite-container" id="player-sprite-container">
+                                        <img id="player-sprite" class="player-sprite" src="" alt="Player" />
+                                    </div>
+                                    
+                                    <div class="ally-sprite-container hidden" id="ally-sprite-container">
+                                        <img id="ally-sprite" class="ally-sprite" src="" alt="Ally" />
+                                    </div>
+                                    
+                                    <div class="enemy-sprite-container">
+                                        <img id="enemy-sprite" class="enemy-sprite" src="" alt="Enemy" />
+                                    </div>
+                                </div>
+                                
                                 <div class="enemy-info">
-                                    <h3 id="enemy-name" class="enemy-name">Enemy</h3>
+                                    <h3 id="enemy-name" class="enemy-name">
+                                        Enemy
+                                        <span id="combat-loading-indicator" class="combat-loading-indicator hidden">
+                                            <span class="loading-dot"></span>
+                                            <span class="loading-dot"></span>
+                                            <span class="loading-dot"></span>
+                                        </span>
+                                    </h3>
                                     <p id="enemy-description" class="enemy-description">A fearsome creature</p>
                                     <div class="enemy-stats">
                                         <div class="stat-row">
@@ -282,6 +315,40 @@
                 </div>
             </div>
 
+            <!-- Ally Detail Modal -->
+            <div id="ally-detail-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 id="ally-detail-name">Ally Details</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="ally-detail-content">
+                        <div class="ally-detail-sprite-container">
+                            <img id="ally-detail-sprite" src="" alt="Ally" />
+                        </div>
+                        <div class="ally-detail-info">
+                            <p><strong>Type:</strong> <span id="ally-detail-type"></span></p>
+                            <p><strong>Value:</strong> <span id="ally-detail-value"></span></p>
+                            <p><strong>Description:</strong></p>
+                            <p id="ally-detail-description" class="ally-detail-description"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ally Encounter Display -->
+            <div id="ally-encounter-display" class="ally-encounter-display hidden">
+                <div class="ally-encounter-content">
+                    <h2>🤝 New Ally!</h2>
+                    <div class="ally-encounter-sprite-container">
+                        <img id="ally-encounter-sprite" src="" alt="Ally" />
+                    </div>
+                    <h3 id="ally-encounter-name"></h3>
+                    <p id="ally-encounter-description"></p>
+                    <button id="ally-encounter-close-btn" class="btn btn-primary">Continue</button>
+                </div>
+            </div>
+
             <!-- Shop Modal -->
             <div id="shop-modal" class="modal">
                 <div class="modal-content">
@@ -304,6 +371,15 @@
         <footer class="game-footer">
             <p>Abyssal Invaders © 2025 | A Text-Based Dungeon Crawler Adventure</p>
         </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner">
+            <img id="loading-sprite" class="loading-sprite hidden" src="" alt="Enemy" />
+            <div class="spinner"></div>
+            <p id="loading-message">Loading...</p>
+        </div>
     </div>
 
     <script src="/static/game.js"></script>

@@ -9,7 +9,12 @@ const gameState = {
     currentEnemy: null,
     currentAlly: null,
     roomPositions: {}, // Track room positions for minimap: { roomId: {x, y} }
-    roomInfo: {} // Track room features for minimap: { roomId: {hasStairs: bool} }
+    roomInfo: {}, // Track room features for minimap: { roomId: {hasStairs: bool} }
+    isLoading: false, // Track if a request is in progress
+    loadingMessage: '', // Store the current loading message
+    enemySprite: null, // Cache the current enemy's sprite
+    spriteCache: {}, // Cache sprites by enemy name: { enemyName: spritePath }
+    playerSprite: null // Cache the player's sprite
 };
 
 // API Base URL
@@ -38,9 +43,12 @@ function initializeElements() {
         playerNameInput: document.getElementById('player-name'),
         startGameBtn: document.getElementById('start-game-btn'),
         viewLeaderboardBtn: document.getElementById('view-leaderboard-btn'),
+        continueSessionIdInput: document.getElementById('continue-session-id'),
+        continueGameBtn: document.getElementById('continue-game-btn'),
         
         // Player info
         playerNameDisplay: document.getElementById('player-name-display'),
+        playerAvatar: document.getElementById('player-avatar'),
         healthBar: document.getElementById('health-bar'),
         healthText: document.getElementById('health-text'),
         playerGold: document.getElementById('player-gold'),
@@ -57,6 +65,9 @@ function initializeElements() {
         
         // Combat
         combatArea: document.getElementById('combat-area'),
+        playerSpriteContainer: document.getElementById('player-sprite-container'),
+        playerSprite: document.getElementById('player-sprite'),
+        enemySprite: document.getElementById('enemy-sprite'),
         enemyName: document.getElementById('enemy-name'),
         enemyDescription: document.getElementById('enemy-description'),
         enemyHealthBar: document.getElementById('enemy-health-bar'),
@@ -83,6 +94,7 @@ function initializeElements() {
         viewStatsBtn: document.getElementById('view-stats-btn'),
         viewScoresBtn: document.getElementById('view-scores-btn'),
         submitScoreBtn: document.getElementById('submit-score-btn'),
+        showSessionBtn: document.getElementById('show-session-btn'),
         newGameBtn: document.getElementById('new-game-btn'),
         
         // Allies
@@ -108,6 +120,7 @@ function initializeElements() {
         statsModal: document.getElementById('stats-modal'),
         itemModal: document.getElementById('item-modal'),
         allyModal: document.getElementById('ally-modal'),
+        allyDetailModal: document.getElementById('ally-detail-modal'),
         shopModal: document.getElementById('shop-modal'),
         modalLeaderboardList: document.getElementById('modal-leaderboard-list'),
         modalStatsContent: document.getElementById('modal-stats-content'),
@@ -116,10 +129,222 @@ function initializeElements() {
         modalShopList: document.getElementById('modal-shop-list'),
         shopPlayerGold: document.getElementById('shop-player-gold'),
         
+        // Ally detail modal elements
+        allyDetailName: document.getElementById('ally-detail-name'),
+        allyDetailType: document.getElementById('ally-detail-type'),
+        allyDetailValue: document.getElementById('ally-detail-value'),
+        allyDetailDescription: document.getElementById('ally-detail-description'),
+        allyDetailSprite: document.getElementById('ally-detail-sprite'),
+        
+        // Ally encounter display
+        allyEncounterDisplay: document.getElementById('ally-encounter-display'),
+        allyEncounterName: document.getElementById('ally-encounter-name'),
+        allyEncounterDescription: document.getElementById('ally-encounter-description'),
+        allyEncounterSprite: document.getElementById('ally-encounter-sprite'),
+        allyEncounterCloseBtn: document.getElementById('ally-encounter-close-btn'),
+        
+        // Ally sprite in combat
+        allySpriteContainer: document.getElementById('ally-sprite-container'),
+        allySprite: document.getElementById('ally-sprite'),
+        
         // Minimap
         minimapFloor: document.getElementById('minimap-floor'),
-        minimapGrid: document.getElementById('minimap-grid')
+        minimapGrid: document.getElementById('minimap-grid'),
+        
+        // Loading overlay
+        loadingOverlay: document.getElementById('loading-overlay'),
+        loadingMessage: document.getElementById('loading-message'),
+        loadingSprite: document.getElementById('loading-sprite'),
+        
+        // Combat loading indicator
+        combatLoadingIndicator: document.getElementById('combat-loading-indicator')
     };
+}
+
+// Attack animation classes
+const ATTACK_ANIMATIONS = [
+    'attack-slash',
+    'attack-magic',
+    'attack-lunge',
+    'attack-spin',
+    'attack-pulse'
+];
+
+// Select random attack animation
+function selectRandomAttackAnimation() {
+    const randomIndex = Math.floor(Math.random() * ATTACK_ANIMATIONS.length);
+    return ATTACK_ANIMATIONS[randomIndex];
+}
+
+// Remove all attack animation classes
+function removeAttackAnimations() {
+    if (elements.enemySprite) {
+        ATTACK_ANIMATIONS.forEach(className => {
+            elements.enemySprite.classList.remove(className);
+        });
+    }
+    if (elements.playerSprite) {
+        ATTACK_ANIMATIONS.forEach(className => {
+            elements.playerSprite.classList.remove(className);
+        });
+    }
+}
+
+// Loading state management
+function showLoading(message = 'Loading...') {
+    if (gameState.isLoading) {
+        console.warn('Already loading, ignoring duplicate request');
+        return false;
+    }
+    gameState.isLoading = true;
+    gameState.loadingMessage = message;
+    
+    if (elements.loadingMessage) {
+        elements.loadingMessage.textContent = message;
+    }
+    
+    // Apply random attack animation to enemy sprite in combat area
+    if (gameState.inCombat && elements.enemySprite && elements.enemySprite.src) {
+        const attackAnimation = selectRandomAttackAnimation();
+        console.log(`🎬 Applying attack animation: ${attackAnimation}`);
+        removeAttackAnimations(); // Clear any previous animation
+        elements.enemySprite.classList.add(attackAnimation);
+    }
+    
+    // Hide loading sprite in overlay - we want to see the combat area instead
+    if (elements.loadingSprite) {
+        elements.loadingSprite.classList.add('hidden');
+    }
+    
+    if (elements.loadingOverlay) {
+        elements.loadingOverlay.classList.remove('hidden');
+    }
+    return true;
+}
+
+function hideLoading() {
+    gameState.isLoading = false;
+    gameState.loadingMessage = '';
+    
+    if (elements.loadingOverlay) {
+        elements.loadingOverlay.classList.add('hidden');
+    }
+    if (elements.loadingSprite) {
+        elements.loadingSprite.classList.add('hidden');
+    }
+    
+    // Remove attack animation from enemy sprite
+    removeAttackAnimations();
+}
+
+// Fetch and cache enemy sprite
+async function fetchEnemySprite(enemyName, enemyDescription) {
+    console.log(`fetchEnemySprite called for: "${enemyName}"`);
+    console.log(`Description: ${enemyDescription ? enemyDescription.substring(0, 100) : 'none'}...`);
+    
+    // Check if already cached
+    if (gameState.spriteCache[enemyName]) {
+        console.log(`✓ Using cached sprite for "${enemyName}": ${gameState.spriteCache[enemyName]}`);
+        return gameState.spriteCache[enemyName];
+    }
+    
+    console.log(`⟳ Fetching new sprite for "${enemyName}"...`);
+    
+    try {
+        const result = await apiRequest('/enemy/sprite', 'POST', {
+            enemy_name: enemyName,
+            enemy_description: enemyDescription || ''
+        });
+        
+        if (result.error) {
+            console.error(`✗ Failed to fetch sprite for "${enemyName}":`, result.message);
+            return null;
+        }
+        
+        const spritePath = result.data.sprite_path;
+        console.log(`✓ Matched sprite for "${enemyName}": ${spritePath}`);
+        console.log(`  Tags: ${result.data.sprite_tags.join(', ')}`);
+        
+        // Cache the sprite path
+        gameState.spriteCache[enemyName] = spritePath;
+        gameState.enemySprite = spritePath;
+        console.log(`  Cached. Total cached sprites: ${Object.keys(gameState.spriteCache).length}`);
+        
+        // Update displayed sprite if in combat
+        if (gameState.inCombat && elements.enemySprite) {
+            elements.enemySprite.src = spritePath;
+            elements.enemySprite.style.display = 'block';
+        }
+        
+        return spritePath;
+        
+    } catch (error) {
+        console.error(`✗ Error fetching sprite for "${enemyName}":`, error);
+        return null;
+    }
+}
+
+// Fetch and cache player sprite
+async function fetchPlayerSprite(playerName) {
+    console.log(`fetchPlayerSprite called for: "${playerName}"`);
+    
+    // Check if already cached
+    if (gameState.playerSprite) {
+        console.log(`✓ Using cached player sprite: ${gameState.playerSprite}`);
+        return gameState.playerSprite;
+    }
+    
+    console.log(`⟳ Fetching player sprite...`);
+    
+    try {
+        // Use player sprite endpoint
+        const result = await apiRequest('/player/sprite', 'POST', {
+            player_name: playerName
+        });
+        
+        if (result.error) {
+            console.error(`✗ Failed to fetch player sprite:`, result.message);
+            // Use default player sprite
+            gameState.playerSprite = '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+            
+            // Update player avatar in stats panel
+            if (elements.playerAvatar) {
+                elements.playerAvatar.src = gameState.playerSprite;
+            }
+            
+            return gameState.playerSprite;
+        }
+        
+        const spritePath = result.data.sprite_path;
+        console.log(`✓ Matched player sprite: ${spritePath}`);
+        
+        // Cache the sprite path
+        gameState.playerSprite = spritePath;
+        
+        // Update player avatar in stats panel
+        if (elements.playerAvatar) {
+            elements.playerAvatar.src = spritePath;
+        }
+        
+        // Update displayed sprite if in combat
+        if (gameState.inCombat && elements.playerSprite) {
+            elements.playerSprite.src = spritePath;
+        }
+        
+        return spritePath;
+        
+    } catch (error) {
+        console.error(`✗ Error fetching player sprite:`, error);
+        // Use default player sprite
+        gameState.playerSprite = '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+        
+        // Update player avatar in stats panel
+        if (elements.playerAvatar) {
+            elements.playerAvatar.src = gameState.playerSprite;
+        }
+        
+        return gameState.playerSprite;
+    }
 }
 
 // Attach event listeners
@@ -130,6 +355,16 @@ function attachEventListeners() {
         if (e.key === 'Enter') startNewGame();
     });
     
+    // Continue game
+    if (elements.continueGameBtn) {
+        elements.continueGameBtn.addEventListener('click', continueGame);
+    }
+    if (elements.continueSessionIdInput) {
+        elements.continueSessionIdInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') continueGame();
+        });
+    }
+    
     // Movement
     elements.moveNorth.addEventListener('click', () => movePlayer('north'));
     elements.moveSouth.addEventListener('click', () => movePlayer('south'));
@@ -138,16 +373,31 @@ function attachEventListeners() {
     elements.moveUp.addEventListener('click', () => movePlayer('up'));
     elements.enterShopBtn.addEventListener('click', openShop);
     
-    // Combat
-    elements.attackBtn.addEventListener('click', () => performCombatAction('attack', false));
-    elements.useAllyBtn.addEventListener('click', () => showAllyModal());
-    elements.useItemBtn.addEventListener('click', () => showItemModal());
-    elements.fleeBtn.addEventListener('click', () => performCombatAction('flee', false));
+    // Combat (with animations)
+    elements.attackBtn.addEventListener('click', (e) => {
+        bounceButton(e.target);
+        performCombatAction('attack', false);
+    });
+    elements.useAllyBtn.addEventListener('click', (e) => {
+        bounceButton(e.target);
+        showAllyModal();
+    });
+    elements.useItemBtn.addEventListener('click', (e) => {
+        bounceButton(e.target);
+        showItemModal();
+    });
+    elements.fleeBtn.addEventListener('click', (e) => {
+        shakeElement(e.target);
+        performCombatAction('flee', false);
+    });
     
     // Actions
     elements.viewStatsBtn.addEventListener('click', viewStats);
     elements.viewScoresBtn.addEventListener('click', () => showLeaderboardModal());
     elements.submitScoreBtn.addEventListener('click', submitScore);
+    if (elements.showSessionBtn) {
+        elements.showSessionBtn.addEventListener('click', showSessionId);
+    }
     elements.newGameBtn.addEventListener('click', confirmNewGame);
     elements.viewLeaderboardBtn.addEventListener('click', () => showLeaderboardModal());
     
@@ -158,6 +408,13 @@ function attachEventListeners() {
         resetGameState();
     });
     elements.viewFinalLeaderboardBtn.addEventListener('click', () => showLeaderboardModal());
+    
+    // Ally encounter close button
+    if (elements.allyEncounterCloseBtn) {
+        elements.allyEncounterCloseBtn.addEventListener('click', () => {
+            elements.allyEncounterDisplay.classList.add('hidden');
+        });
+    }
     
     // Modal close buttons
     document.querySelectorAll('.modal-close').forEach(btn => {
@@ -205,9 +462,16 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
 async function startNewGame() {
     const playerName = elements.playerNameInput.value.trim() || 'Adventurer';
     
+    // Prevent multiple simultaneous game starts
+    if (!showLoading('Creating adventure...')) {
+        return;
+    }
+    
     addLogEntry('Starting new adventure...', 'important');
     
     const result = await apiRequest('/player/new', 'POST', { name: playerName });
+    
+    hideLoading();
     
     if (result.error) {
         addLogEntry(`Failed to start game: ${result.message}`, 'danger');
@@ -254,7 +518,154 @@ async function startNewGame() {
     addLogEntry(result.message || 'Welcome to Abyssal Invaders!', 'success');
     addLogEntry(gameState.currentRoom.description);
     
+    // Fetch and cache player sprite
+    await fetchPlayerSprite(playerName);
+    
     loadLeaderboard();
+}
+
+// Continue existing game
+async function continueGame() {
+    const sessionId = elements.continueSessionIdInput.value.trim();
+    
+    if (!sessionId) {
+        alert('Please enter a session ID');
+        return;
+    }
+    
+    // Prevent multiple simultaneous requests
+    if (!showLoading('Loading game...')) {
+        return;
+    }
+    
+    addLogEntry('Loading existing game...', 'important');
+    
+    try {
+        const result = await apiRequest('/player/load', 'POST', { session_id: sessionId });
+        
+        hideLoading();
+        
+        if (result.error) {
+            addLogEntry(`Failed to load game: ${result.message}`, 'danger');
+            alert(`Failed to load game: ${result.message}`);
+            return;
+        }
+        
+        // Validate response structure
+        if (!result.data || !result.data.player) {
+            addLogEntry('Invalid game data received', 'danger');
+            alert('Invalid game data received. The session may be corrupted.');
+            return;
+        }
+        
+        // Check if player is alive
+        if (!result.data.player.is_alive) {
+            addLogEntry('This character has died. Cannot continue.', 'danger');
+            alert('This character has died. You cannot continue with this session.');
+            return;
+        }
+        
+        // Set game state
+        gameState.sessionId = sessionId;
+        gameState.player = result.data.player;
+        gameState.currentRoom = result.data.current_room;
+        
+        // Restore battle state if player was in combat
+        if (result.data.player.in_battle && result.data.player.current_enemy) {
+            gameState.inCombat = true;
+            gameState.currentEnemy = result.data.player.current_enemy;
+        } else {
+            gameState.inCombat = false;
+            gameState.currentEnemy = null;
+        }
+        
+        // Initialize arrays if not present
+        if (!gameState.player.allies) gameState.player.allies = [];
+        if (!gameState.player.inventory) gameState.player.inventory = [];
+        if (!gameState.player.visited_rooms) gameState.player.visited_rooms = [];
+        
+        // Restore minimap data if available, otherwise initialize with current room
+        if (result.data.player.room_positions && Object.keys(result.data.player.room_positions).length > 0) {
+            gameState.roomPositions = result.data.player.room_positions;
+            console.log('Loaded room_positions:', gameState.roomPositions);
+            console.log('Current room_id:', gameState.player.room_id);
+            console.log('Current room in positions?', gameState.roomPositions[gameState.player.room_id]);
+            // Ensure current room is in the map (in case it's missing)
+            if (!gameState.roomPositions[gameState.player.room_id]) {
+                console.log('Current room NOT found in positions, adding at {x:0, y:0}');
+                gameState.roomPositions[gameState.player.room_id] = { x: 0, y: 0 };
+            } else {
+                console.log('Current room found in positions at:', gameState.roomPositions[gameState.player.room_id]);
+            }
+        } else {
+            gameState.roomPositions = {};
+            gameState.roomPositions[gameState.player.room_id] = { x: 0, y: 0 };
+        }
+        
+        if (result.data.player.room_info && Object.keys(result.data.player.room_info).length > 0) {
+            gameState.roomInfo = result.data.player.room_info;
+            // Ensure current room info is present
+            if (!gameState.roomInfo[gameState.player.room_id]) {
+                gameState.roomInfo[gameState.player.room_id] = {
+                    hasStairs: gameState.currentRoom.has_staircase || false,
+                    isShop: gameState.currentRoom.is_shop || false
+                };
+            }
+        } else {
+            gameState.roomInfo = {};
+            gameState.roomInfo[gameState.player.room_id] = {
+                hasStairs: gameState.currentRoom.has_staircase || false,
+                isShop: gameState.currentRoom.is_shop || false
+            };
+        }
+        
+        showScreen('game-screen');
+        updatePlayerDisplay();
+        updateRoomDisplay();
+        updateMinimap();
+        addLogEntry('Game loaded successfully!', 'success');
+        addLogEntry(gameState.currentRoom.description);
+        
+        // Fetch and cache player sprite first (needed for combat display)
+        await fetchPlayerSprite(gameState.player.name);
+        
+        // Restore combat if player was in battle
+        if (gameState.inCombat && gameState.currentEnemy) {
+            addLogEntry('Resuming battle...', 'important');
+            
+            // Fetch enemy sprite before showing combat area
+            if (gameState.currentEnemy.name && gameState.currentEnemy.description) {
+                await fetchEnemySprite(gameState.currentEnemy.name, gameState.currentEnemy.description);
+            }
+            
+            // showCombatArea() will display all combat UI including enemy stats and sprites
+            showCombatArea();
+        }
+        
+        loadLeaderboard();
+        
+    } catch (error) {
+        hideLoading();
+        addLogEntry(`Error loading game: ${error.message}`, 'danger');
+        alert(`Error loading game: ${error.message}`);
+    }
+}
+
+// Show session ID
+function showSessionId() {
+    if (!gameState.sessionId) {
+        alert('No active game session');
+        return;
+    }
+    
+    const message = `Your Session ID:\n\n${gameState.sessionId}\n\nSave this ID to continue your game later!`;
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(gameState.sessionId).then(() => {
+        alert(message + '\n\n✅ Copied to clipboard!');
+    }).catch(() => {
+        alert(message);
+    });
 }
 
 // Update player display
@@ -263,17 +674,63 @@ function updatePlayerDisplay() {
     
     elements.playerNameDisplay.textContent = gameState.player.name;
     
-    // Parse health string "50/100"
-    const healthParts = gameState.player.health.split('/');
-    const currentHealth = parseInt(healthParts[0]);
-    const maxHealth = parseInt(healthParts[1]);
+    // Parse health - handle both number and "50/100" string format
+    let currentHealth, maxHealth;
+    if (typeof gameState.player.health === 'string' && gameState.player.health.includes('/')) {
+        const healthParts = gameState.player.health.split('/');
+        currentHealth = parseInt(healthParts[0]);
+        maxHealth = parseInt(healthParts[1]);
+    } else {
+        currentHealth = parseInt(gameState.player.health);
+        maxHealth = parseInt(gameState.player.max_health || 100);
+    }
+    
     const healthPercent = (currentHealth / maxHealth) * 100;
     
-    elements.healthBar.style.width = `${healthPercent}%`;
-    elements.healthText.textContent = gameState.player.health;
+    // Detect health change and animate
+    const oldHealth = elements.healthBar.dataset.currentHealth || currentHealth;
+    if (currentHealth < oldHealth) {
+        animateDamage(elements.healthBar.parentElement);
+        shakeElement(document.querySelector('.stat-card:first-child'));
+    } else if (currentHealth > oldHealth) {
+        animateHealing(elements.healthBar.parentElement);
+        pulseElement(document.querySelector('.stat-card:first-child'));
+    }
+    elements.healthBar.dataset.currentHealth = currentHealth;
     
+    // Add low health warning
+    if (healthPercent < 30) {
+        elements.healthBar.classList.add('low-health');
+    } else {
+        elements.healthBar.classList.remove('low-health');
+    }
+    
+    elements.healthBar.style.width = `${healthPercent}%`;
+    elements.healthText.textContent = `${currentHealth}/${maxHealth}`;
+    
+    // Detect gold change and animate
+    const oldGold = elements.playerGold.dataset.value || gameState.player.gold;
+    if (gameState.player.gold !== parseInt(oldGold)) {
+        animateGoldChange(elements.playerGold);
+    }
+    elements.playerGold.dataset.value = gameState.player.gold;
     elements.playerGold.textContent = gameState.player.gold;
+    
+    // Detect level change and animate
+    const oldLevel = elements.playerLevel.dataset.value || gameState.player.level;
+    if (gameState.player.level > parseInt(oldLevel)) {
+        animateLevelUp(elements.playerLevel.parentElement);
+        addLogEntry('🎉 LEVEL UP! You feel more powerful!', 'success');
+        createParticles(
+            elements.playerLevel.getBoundingClientRect().left + 20,
+            elements.playerLevel.getBoundingClientRect().top + 10,
+            '#ffd700',
+            15
+        );
+    }
+    elements.playerLevel.dataset.value = gameState.player.level;
     elements.playerLevel.textContent = gameState.player.level || 1;
+    
     elements.playerFloor.textContent = gameState.player.floor;
     elements.playerAllies.textContent = gameState.player.allies ? gameState.player.allies.length : 0;
     elements.playerAttack.textContent = gameState.player.attack_power || 10;
@@ -289,6 +746,10 @@ function updatePlayerDisplay() {
 // Update allies list
 function updateAlliesList() {
     const alliesList = elements.alliesList;
+    
+    console.log('DEBUG updateAlliesList: player exists?', !!gameState.player);
+    console.log('DEBUG updateAlliesList: allies array?', gameState.player?.allies);
+    console.log('DEBUG updateAlliesList: allies length?', gameState.player?.allies?.length);
     
     if (!gameState.player || !gameState.player.allies || gameState.player.allies.length === 0) {
         alliesList.innerHTML = '<p class="empty-state">No allies recruited yet</p>';
@@ -393,12 +854,19 @@ function showItemModal() {
 async function useItem(itemId) {
     elements.itemModal.classList.remove('active');
     
+    // Prevent multiple simultaneous item uses
+    if (!showLoading('Using item...')) {
+        return;
+    }
+    
     addLogEntry('Using item...', 'info');
     
     const result = await apiRequest('/inventory/use', 'POST', {
         session_id: gameState.sessionId,
         item_id: itemId
     });
+    
+    hideLoading();
     
     if (result.error) {
         addLogEntry(`Failed to use item: ${result.message}`, 'danger');
@@ -463,8 +931,13 @@ function showAllyModal() {
             'skipper': 'Skips enemy turn'
         };
         
+        const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+        
         return `
             <div class="ally-card" data-ally-index="${index}">
+                <div class="ally-sprite-preview">
+                    <img src="${spritePath}" alt="${ally.name}" />
+                </div>
                 <div class="ally-header">
                     <span class="ally-icon">${typeEmoji[ally.type] || '👤'}</span>
                     <span class="ally-title">${ally.name}</span>
@@ -474,7 +947,10 @@ function showAllyModal() {
                     <span class="ally-type">${ally.type}</span>
                     <span class="ally-value">${typeDescription[ally.type]}</span>
                 </div>
-                <button class="btn btn-primary btn-use-ally" data-ally-index="${index}">Call Ally</button>
+                <div class="ally-card-buttons">
+                    <button class="btn btn-primary btn-use-ally" data-ally-index="${index}">Call Ally</button>
+                    <button class="btn btn-secondary btn-view-ally" data-ally-index="${index}">View Details</button>
+                </div>
             </div>
         `;
     }).join('');
@@ -486,6 +962,57 @@ function showAllyModal() {
             useAlly(allyIndex);
         });
     });
+    
+    // Attach click handlers to view details buttons
+    allyList.querySelectorAll('.btn-view-ally').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const allyIndex = parseInt(e.target.getAttribute('data-ally-index'));
+            const ally = gameState.player.allies[allyIndex];
+            if (ally) {
+                showAllyDetailModal(ally);
+            }
+        });
+    });
+}
+
+// Show ally encounter display with sprite
+function showAllyEncounter(ally) {
+    if (!ally || !elements.allyEncounterDisplay) return;
+    
+    const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+    
+    elements.allyEncounterName.textContent = ally.name || 'New Ally';
+    elements.allyEncounterDescription.textContent = ally.description || 'A helpful ally joins you!';
+    elements.allyEncounterSprite.src = spritePath;
+    
+    elements.allyEncounterDisplay.classList.remove('hidden');
+}
+
+// Show ally detail modal
+function showAllyDetailModal(ally) {
+    if (!ally || !elements.allyDetailModal) return;
+    
+    const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+    
+    const typeEmoji = {
+        'healer': '💚 Healer',
+        'attacker': '⚔️ Attacker',
+        'skipper': '⏸️ Skipper'
+    };
+    
+    const typeDescription = {
+        'healer': `Heals ${ally.value} HP`,
+        'attacker': `Deals ${ally.value} damage`,
+        'skipper': 'Skips enemy turn'
+    };
+    
+    elements.allyDetailName.textContent = ally.name || 'Ally';
+    elements.allyDetailType.textContent = typeEmoji[ally.type] || ally.type;
+    elements.allyDetailValue.textContent = typeDescription[ally.type] || ally.value;
+    elements.allyDetailDescription.textContent = ally.description || 'A helpful ally.';
+    elements.allyDetailSprite.src = spritePath;
+    
+    elements.allyDetailModal.classList.add('active');
 }
 
 // Use an ally
@@ -494,31 +1021,78 @@ async function useAlly(allyIndex) {
     
     addLogEntry('Calling ally...', 'info');
     
+    // Get ally info before using
+    const ally = gameState.player.allies[allyIndex];
+    if (ally) {
+        // Show ally sprite in combat and play animation
+        showCombatAllySprite(ally);
+    }
+    
     await performCombatAction('attack', false, allyIndex);
+}
+
+// Show ally sprite in combat area with animation
+function showCombatAllySprite(ally) {
+    if (!ally || !elements.allySpriteContainer || !elements.allySprite) return;
+    
+    const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+    
+    elements.allySprite.src = spritePath;
+    elements.allySpriteContainer.classList.remove('hidden');
+    
+    // Remove any existing animation classes
+    elements.allySprite.classList.remove('ally-animation-healer', 'ally-animation-attacker', 'ally-animation-skipper');
+    
+    // Add animation based on ally type
+    setTimeout(() => {
+        const animationClass = `ally-animation-${ally.type}`;
+        elements.allySprite.classList.add(animationClass);
+        
+        // Hide ally sprite after animation (2-3 seconds)
+        setTimeout(() => {
+            hideCombatAllySprite();
+        }, 3000);
+    }, 100);
+}
+
+// Hide ally sprite from combat area
+function hideCombatAllySprite() {
+    if (elements.allySpriteContainer) {
+        elements.allySpriteContainer.classList.add('hidden');
+    }
+    if (elements.allySprite) {
+        elements.allySprite.classList.remove('ally-animation-healer', 'ally-animation-attacker', 'ally-animation-skipper');
+    }
 }
 
 // Update room display
 function updateRoomDisplay() {
     if (!gameState.currentRoom) return;
     
-    elements.roomName.textContent = gameState.currentRoom.name || 'Unknown Room';
-    elements.roomDescription.textContent = gameState.currentRoom.description || 'A mysterious room...';
-    
-    // Update room features
-    elements.roomFeatures.innerHTML = '';
-    
-    if (gameState.currentRoom.has_staircase) {
-        const badge = document.createElement('span');
-        badge.className = 'feature-badge';
-        badge.textContent = '🔼 Staircase Available';
-        elements.roomFeatures.appendChild(badge);
+    if (elements.roomName) {
+        elements.roomName.textContent = gameState.currentRoom.name || 'Unknown Room';
+    }
+    if (elements.roomDescription) {
+        elements.roomDescription.textContent = gameState.currentRoom.description || 'A mysterious room...';
     }
     
-    if (gameState.currentRoom.has_been_visited) {
-        const badge = document.createElement('span');
-        badge.className = 'feature-badge';
-        badge.textContent = '👁️ Previously Visited';
-        elements.roomFeatures.appendChild(badge);
+    // Update room features
+    if (elements.roomFeatures) {
+        elements.roomFeatures.innerHTML = '';
+        
+        if (gameState.currentRoom.has_staircase) {
+            const badge = document.createElement('span');
+            badge.className = 'feature-badge';
+            badge.textContent = '🔼 Staircase Available';
+            elements.roomFeatures.appendChild(badge);
+        }
+        
+        if (gameState.currentRoom.has_been_visited) {
+            const badge = document.createElement('span');
+            badge.className = 'feature-badge';
+            badge.textContent = '👁️ Previously Visited';
+            elements.roomFeatures.appendChild(badge);
+        }
     }
     
     // Show/hide shop button
@@ -552,12 +1126,21 @@ function updateMovementButtons() {
 
 // Move player
 async function movePlayer(direction) {
+    // Prevent multiple simultaneous moves
+    if (!showLoading('Moving...')) {
+        return;
+    }
+    
     addLogEntry(`Moving ${direction}...`);
     
     const result = await apiRequest('/player/move', 'POST', {
         session_id: gameState.sessionId,
-        direction: direction
+        direction: direction,
+        room_positions: gameState.roomPositions,
+        room_info: gameState.roomInfo
     });
+    
+    hideLoading();
     
     if (result.error) {
         addLogEntry(`Cannot move: ${result.message}`, 'danger');
@@ -644,6 +1227,9 @@ async function movePlayer(direction) {
         // Add the ally to the player's allies array
         if (ally.ally) {
             gameState.player.allies.push(ally.ally);
+            
+            // Show ally encounter display with sprite
+            showAllyEncounter(ally.ally);
         }
         
         updatePlayerDisplay();
@@ -664,6 +1250,16 @@ function handleEncounter(encounterData) {
     gameState.inCombat = true;
     gameState.currentEnemy = encounter.enemy;
     gameState.currentAlly = encounter.ally || null;
+    
+    // Fetch and cache sprite for this enemy
+    if (encounter.enemy) {
+        fetchEnemySprite(encounter.enemy.name, encounter.enemy.description).then(spritePath => {
+            if (spritePath) {
+                gameState.enemySprite = spritePath;
+                console.log(`Loaded sprite for enemy: ${encounter.enemy.name}`);
+            }
+        });
+    }
     
     // Update player state from encounter
     if (encounter.player) {
@@ -690,9 +1286,26 @@ function handleEncounter(encounterData) {
 function showCombatArea() {
     elements.combatArea.classList.remove('hidden');
     
+    // Display player sprite
+    if (gameState.playerSprite && elements.playerSprite) {
+        elements.playerSprite.src = gameState.playerSprite;
+        elements.playerSpriteContainer.style.display = 'flex';
+    }
+    
     if (gameState.currentEnemy) {
         elements.enemyName.textContent = gameState.currentEnemy.name || 'Unknown Enemy';
         elements.enemyDescription.textContent = gameState.currentEnemy.description || 'A mysterious creature';
+        
+        // Display enemy sprite
+        if (gameState.enemySprite) {
+            console.log(`✓ Displaying enemy sprite: ${gameState.enemySprite}`);
+            elements.enemySprite.src = gameState.enemySprite;
+            elements.enemySprite.style.display = 'block';
+        } else {
+            console.log('⟳ No sprite cached, fetching...');
+            // Fetch sprite asynchronously (don't await to avoid blocking combat display)
+            fetchEnemySprite(gameState.currentEnemy.name, gameState.currentEnemy.description);
+        }
         
         const currentHealth = gameState.currentEnemy.health || 0;
         const maxHealth = gameState.currentEnemy.max_health || 1;
@@ -722,78 +1335,206 @@ function showCombatArea() {
 
 // Hide combat area
 function hideCombatArea() {
+    console.log('DEBUG hideCombatArea: Hiding combat and resetting state');
     elements.combatArea.classList.add('hidden');
+    elements.enemySprite.style.display = 'none';
+    elements.enemySprite.src = '';
     gameState.inCombat = false;
     gameState.currentEnemy = null;
     gameState.currentAlly = null;
+    gameState.enemySprite = null;
+    gameState.enemySprite = null; // Clear the cached sprite for this battle
     updateMovementButtons();
 }
 
 // Perform combat action
 async function performCombatAction(action, useAlly = false, allyIndex = null) {
-    const requestBody = {
-        session_id: gameState.sessionId,
-        action: action,
-        use_ally: useAlly
-    };
-    
-    // Add ally_index if provided
-    if (allyIndex !== null) {
-        requestBody.ally_index = allyIndex;
-        requestBody.use_ally = true;
-    }
-    
-    const result = await apiRequest('/player/attack', 'POST', requestBody);
-    
-    if (result.error) {
-        addLogEntry(`Combat error: ${result.message}`, 'danger');
+    // Prevent multiple simultaneous attacks
+    if (gameState.isLoading) {
+        console.warn('Already loading, ignoring duplicate combat action');
         return;
     }
     
-    // Process combat result
-    if (result.data) {
-        const combatData = result.data;
+    // Set loading state WITHOUT showing overlay for attacks (so we can see the animation)
+    gameState.isLoading = true;
+    
+    // Show combat loading indicator
+    if (elements.combatLoadingIndicator) {
+        elements.combatLoadingIndicator.classList.remove('hidden');
+    }
+    
+    // Apply random attack animation to player sprite when attacking
+    if (action === 'attack' && gameState.inCombat && elements.playerSprite && elements.playerSprite.src) {
+        const playerAttackAnimation = selectRandomAttackAnimation();
+        console.log(`🎬 Applying player attack animation: ${playerAttackAnimation}`);
+        removeAttackAnimations(); // Clear any previous animation
+        elements.playerSprite.classList.add(playerAttackAnimation);
         
-        // Add combat messages to log
-        if (combatData.messages) {
-            combatData.messages.forEach(msg => {
-                // Check if message is an object with a description field
-                const messageText = typeof msg === 'object' && msg.description ? msg.description : msg;
-                addLogEntry(messageText, 'important');
-            });
-        }
-        
-        // Update player state
-        if (combatData.player) {
-            gameState.player.health = combatData.player.health;
-            gameState.player.gold = combatData.player.gold;
-            gameState.player.level = combatData.player.level;
-            gameState.player.in_battle = combatData.player.in_battle;
-            gameState.player.allies = combatData.player.allies || [];
-            gameState.player.ally_used = combatData.player.ally_used || false;
-            updatePlayerDisplay();
-            updateAlliesList();
-        }
-        
-        // Update enemy state
-        if (combatData.enemy && gameState.inCombat) {
-            gameState.currentEnemy = combatData.enemy;
-            showCombatArea();
-        }
-        
-        // Check if battle ended
-        if (combatData.battle_ended || !combatData.player?.in_battle) {
-            if (combatData.victory) {
-                addLogEntry(`🎉 Victory! Gained ${combatData.gold_reward} gold and ${combatData.exp_reward} XP!`, 'success');
-            } else if (combatData.fled) {
-                addLogEntry(`🏃 Successfully fled from battle!`, 'success');
+        // Remove the animation class after it completes
+        setTimeout(() => {
+            if (elements.playerSprite) {
+                elements.playerSprite.classList.remove(playerAttackAnimation);
             }
-            hideCombatArea();
+        }, 1000); // Matches the longest animation duration
+    }
+    
+    // Apply random attack animation to enemy sprite in combat area (enemy counter-attack)
+    if (gameState.inCombat && elements.enemySprite && elements.enemySprite.src) {
+        // Delay enemy animation slightly so player attacks first
+        setTimeout(() => {
+            const attackAnimation = selectRandomAttackAnimation();
+            console.log(`🎬 Applying enemy attack animation: ${attackAnimation}`);
+            if (elements.enemySprite) {
+                elements.enemySprite.classList.add(attackAnimation);
+            }
+            
+            // Remove enemy animation after it completes
+            setTimeout(() => {
+                if (elements.enemySprite) {
+                    elements.enemySprite.classList.remove(attackAnimation);
+                }
+            }, 1000);
+        }, 400); // Enemy attacks after player
+    }
+    
+    try {
+        const requestBody = {
+            session_id: gameState.sessionId,
+            action: action,
+            use_ally: useAlly
+        };
+        
+        // Add ally_index if provided
+        if (allyIndex !== null) {
+            requestBody.ally_index = allyIndex;
+            requestBody.use_ally = true;
         }
         
-        // Check if player died
-        if (combatData.player && !combatData.player.is_alive) {
-            handlePlayerDeath();
+        const result = await apiRequest('/player/attack', 'POST', requestBody);
+        
+        if (result.error) {
+            addLogEntry(`Combat error: ${result.message}`, 'danger');
+            return;
+        }
+        
+        // Process combat result
+        if (result.data) {
+            const combatData = result.data;
+        
+            console.log('DEBUG performCombatAction: Combat result received:', combatData);
+            console.log('DEBUG performCombatAction: Battle ended?', combatData.battle_ended);
+            console.log('DEBUG performCombatAction: Player in_battle?', combatData.player?.in_battle);
+            console.log('DEBUG performCombatAction: Enemy data:', combatData.enemy);
+            
+            // Add combat messages to log with enhanced animations
+            if (combatData.messages) {
+                combatData.messages.forEach(msg => {
+                    // Check if message is an object with a description field
+                    const messageText = typeof msg === 'object' && msg.description ? msg.description : msg;
+                    
+                    // Check for critical hits or special messages
+                    if (messageText.toLowerCase().includes('critical') || messageText.toLowerCase().includes('devastating')) {
+                        animateCriticalHit(messageText);
+                        // Create particle effect at center of screen
+                        const centerX = window.innerWidth / 2;
+                        const centerY = window.innerHeight / 2;
+                        createParticles(centerX, centerY, '#ff0000', 20);
+                        shakeElement(document.querySelector('.combat-area'));
+                    } else {
+                        addLogEntry(messageText, 'important');
+                    }
+                });
+            }
+            
+            // Update player state
+            if (combatData.player) {
+                console.log('DEBUG performCombatAction: Updating player state');
+                console.log('DEBUG performCombatAction: Received player data with allies:', combatData.player.allies);
+                console.log('DEBUG performCombatAction: Received player health:', combatData.player.health);
+                
+                // Parse health if it's a string like "50/100"
+                if (typeof combatData.player.health === 'string' && combatData.player.health.includes('/')) {
+                    const [current, max] = combatData.player.health.split('/').map(Number);
+                    gameState.player.health = current;
+                    gameState.player.max_health = max;
+                } else {
+                    gameState.player.health = combatData.player.health;
+                }
+                
+                gameState.player.gold = combatData.player.gold;
+                gameState.player.level = combatData.player.level;
+                gameState.player.in_battle = combatData.player.in_battle;
+                gameState.player.allies = combatData.player.allies || [];
+                gameState.player.ally_used = combatData.player.ally_used || false;
+                console.log('DEBUG performCombatAction: Set gameState.player.allies to:', gameState.player.allies);
+                updatePlayerDisplay();
+                updateAlliesList();
+            }
+            
+            // Update enemy state and animate - ONLY if battle is still ongoing
+            if (combatData.enemy && gameState.inCombat && !combatData.battle_ended && combatData.player?.in_battle) {
+                console.log('DEBUG performCombatAction: Updating enemy state - battle continues');
+                gameState.currentEnemy = combatData.enemy;
+                
+                // Animate enemy taking damage
+                const enemyCard = document.querySelector('.enemy-card');
+                if (enemyCard && action === 'attack') {
+                    shakeElement(enemyCard);
+                    animateDamage(enemyCard);
+                }
+                
+                showCombatArea();
+            } else {
+                console.log('DEBUG performCombatAction: NOT updating enemy state - battle may be ending');
+            }
+            
+            // Check if battle ended - be explicit about checking both conditions
+            const battleEnded = combatData.battle_ended === true || combatData.player?.in_battle === false;
+            console.log('DEBUG performCombatAction: Battle ended check -', {
+                battle_ended: combatData.battle_ended,
+                player_in_battle: combatData.player?.in_battle,
+                calculated_battleEnded: battleEnded
+            });
+            
+            if (battleEnded) {
+                console.log('DEBUG performCombatAction: Battle is ending');
+                if (combatData.victory) {
+                    addLogEntry(`🎉 Victory! Gained ${combatData.gold_reward || 0} gold and ${combatData.exp_reward || 0} XP!`, 'success');
+                    
+                    // Victory particles
+                    const combatArea = document.querySelector('.combat-area');
+                    if (combatArea) {
+                        const rect = combatArea.getBoundingClientRect();
+                        createParticles(rect.left + rect.width / 2, rect.top + rect.height / 2, '#2ecc71', 25);
+                    }
+                    
+                    pulseElement(document.querySelector('.player-stats'));
+                } else if (combatData.fled) {
+                    addLogEntry(`🏃 Successfully fled from battle!`, 'success');
+                }
+                
+                console.log('DEBUG performCombatAction: Calling hideCombatArea()');
+                hideCombatArea();
+            } else {
+                console.log('DEBUG performCombatAction: Battle continues, not hiding combat area');
+            }
+            
+            // Check if player died
+            if (combatData.player && !combatData.player.is_alive) {
+                handlePlayerDeath();
+            }
+        }
+    } catch (error) {
+        console.error('ERROR in performCombatAction:', error);
+        addLogEntry(`Combat error: ${error.message}`, 'danger');
+    } finally {
+        // Clear loading state and remove attack animation
+        gameState.isLoading = false;
+        removeAttackAnimations();
+        
+        // Hide combat loading indicator
+        if (elements.combatLoadingIndicator) {
+            elements.combatLoadingIndicator.classList.add('hidden');
         }
     }
 }
@@ -828,51 +1569,59 @@ async function viewStats() {
     
     if (result.data) {
         const stats = result.data;
+        const basic = stats.basic_stats || {};
+        const progress = stats.progress_stats || {};
+        const calculated = stats.calculated_stats || {};
+        
         elements.modalStatsContent.innerHTML = `
             <div class="stat-category">
                 <h3>Character Stats</h3>
                 <div class="stat-row">
                     <span class="stat-label">Name:</span>
-                    <span class="stat-value">${stats.name || 'Unknown'}</span>
+                    <span class="stat-value">${basic.name || gameState.player?.name || 'Unknown'}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Level:</span>
-                    <span class="stat-value">${stats.level || 1}</span>
+                    <span class="stat-value">${gameState.player?.level || 1}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Experience:</span>
-                    <span class="stat-value">${stats.experience || 0}</span>
+                    <span class="stat-value">${gameState.player?.experience || 0}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Health:</span>
-                    <span class="stat-value">${stats.health || '0/0'}</span>
+                    <span class="stat-value">${basic.health || '0/0'}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Attack Power:</span>
-                    <span class="stat-value">${stats.attack_power || 0}</span>
+                    <span class="stat-value">${basic.attack_power || 0}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Defense:</span>
-                    <span class="stat-value">${stats.defense || 0}</span>
+                    <span class="stat-value">${basic.defense || 0}</span>
                 </div>
             </div>
             <div class="stat-category">
                 <h3>Progress</h3>
                 <div class="stat-row">
                     <span class="stat-label">Current Floor:</span>
-                    <span class="stat-value">${stats.floor || 1}</span>
+                    <span class="stat-value">${basic.current_floor || 1}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Gold:</span>
-                    <span class="stat-value">${stats.gold || 0}</span>
+                    <span class="stat-value">${basic.current_gold || 0}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Allies:</span>
-                    <span class="stat-value">${stats.allies_count || 0}</span>
+                    <span class="stat-value">${progress.allies_found || 0}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Score:</span>
-                    <span class="stat-value">${stats.score || stats.gold || 0}</span>
+                    <span class="stat-label">Rooms Visited:</span>
+                    <span class="stat-value">${progress.rooms_visited || 0}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Survival Score:</span>
+                    <span class="stat-value">${calculated.survival_score || 0}</span>
                 </div>
             </div>
         `;
@@ -914,17 +1663,17 @@ function displayLeaderboard(scores, container) {
     }
     
     container.innerHTML = scores.map((entry, index) => {
-        const rank = index + 1;
+        const rank = entry.rank || (index + 1);
         const rankClass = rank <= 3 ? `rank-${rank}` : '';
         
         return `
             <div class="leaderboard-entry ${rankClass}">
                 <div class="leaderboard-rank">#${rank}</div>
                 <div class="leaderboard-info">
-                    <div class="leaderboard-name">${entry.player_name || 'Anonymous'}</div>
+                    <div class="leaderboard-name">${entry.name || 'Anonymous'}</div>
                     <div class="leaderboard-details">Floor ${entry.floor || 1} • Level ${entry.level || 1}</div>
                 </div>
-                <div class="leaderboard-score">${entry.score || entry.gold || 0} 💰</div>
+                <div class="leaderboard-score">${entry.gold || 0} 💰</div>
             </div>
         `;
     }).join('');
@@ -1249,12 +1998,19 @@ async function purchaseShopItem(itemName, price) {
         return;
     }
     
+    // Prevent multiple simultaneous purchases
+    if (!showLoading('Purchasing...')) {
+        return;
+    }
+    
     addLogEntry(`Purchasing ${itemName}...`, 'info');
     
     const result = await apiRequest('/shop/purchase', 'POST', {
         session_id: gameState.sessionId,
         item_name: itemName
     });
+    
+    hideLoading();
     
     if (result.error) {
         addLogEntry(`Purchase failed: ${result.message}`, 'danger');
@@ -1270,6 +2026,224 @@ async function purchaseShopItem(itemName, price) {
     
     addLogEntry(result.message, 'success');
     
+    // Animate gold change
+    animateGoldChange(elements.playerGold);
+    
     // Refresh shop display
     openShop();
 }
+
+// ============================================
+// ANIMATION HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Animate damage taken
+ */
+function animateDamage(element) {
+    if (!element) return;
+    element.classList.add('damage-flash');
+    setTimeout(() => element.classList.remove('damage-flash'), 500);
+}
+
+/**
+ * Animate healing
+ */
+function animateHealing(element) {
+    if (!element) return;
+    element.classList.add('heal-flash');
+    setTimeout(() => element.classList.remove('heal-flash'), 500);
+}
+
+/**
+ * Animate gold change
+ */
+function animateGoldChange(element) {
+    if (!element) return;
+    element.classList.add('updated');
+    setTimeout(() => element.classList.remove('updated'), 500);
+}
+
+/**
+ * Animate level up
+ */
+function animateLevelUp(element) {
+    if (!element) return;
+    element.classList.add('level-up');
+    setTimeout(() => element.classList.remove('level-up'), 800);
+}
+
+/**
+ * Animate critical hit
+ */
+function animateCriticalHit(message) {
+    const logEntry = document.createElement('div');
+    logEntry.className = 'log-entry critical-hit danger';
+    logEntry.textContent = `💥 CRITICAL HIT! ${message}`;
+    
+    const gameLog = elements.eventLog;
+    if (gameLog) {
+        gameLog.appendChild(logEntry);
+        gameLog.scrollTop = gameLog.scrollHeight;
+    }
+    
+    return logEntry;
+}
+
+/**
+ * Create floating damage number
+ */
+function createFloatingNumber(value, x, y, isHealing = false) {
+    const floater = document.createElement('div');
+    floater.className = `floating-number ${isHealing ? 'healing' : 'damage'}`;
+    floater.textContent = isHealing ? `+${value}` : `-${value}`;
+    floater.style.position = 'fixed';
+    floater.style.left = `${x}px`;
+    floater.style.top = `${y}px`;
+    floater.style.fontSize = '2rem';
+    floater.style.fontWeight = 'bold';
+    floater.style.color = isHealing ? '#2ecc71' : '#e74c3c';
+    floater.style.textShadow = '0 0 10px currentColor';
+    floater.style.pointerEvents = 'none';
+    floater.style.zIndex = '9999';
+    floater.style.animation = 'floatUp 1s ease-out forwards';
+    
+    document.body.appendChild(floater);
+    
+    setTimeout(() => floater.remove(), 1000);
+}
+
+/**
+ * Add floating number animation CSS
+ */
+if (!document.getElementById('floating-number-style')) {
+    const style = document.createElement('style');
+    style.id = 'floating-number-style';
+    style.textContent = `
+        @keyframes floatUp {
+            0% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
+ * Shake an element
+ */
+function shakeElement(element) {
+    if (!element) return;
+    element.style.animation = 'shake 0.5s ease-in-out';
+    setTimeout(() => element.style.animation = '', 500);
+}
+
+/**
+ * Pulse an element
+ */
+function pulseElement(element) {
+    if (!element) return;
+    element.style.animation = 'pulse 0.6s ease-in-out';
+    setTimeout(() => element.style.animation = '', 600);
+}
+
+/**
+ * Add bounce animation to button click
+ */
+function bounceButton(button) {
+    if (!button) return;
+    button.style.animation = 'bounce 0.5s ease-in-out';
+    setTimeout(() => button.style.animation = '', 500);
+}
+
+/**
+ * Create particle effect
+ */
+function createParticles(x, y, color = '#4a90e2', count = 10) {
+    for (let i = 0; i < count; i++) {
+        const particle = document.createElement('div');
+        particle.style.position = 'fixed';
+        particle.style.left = `${x}px`;
+        particle.style.top = `${y}px`;
+        particle.style.width = '8px';
+        particle.style.height = '8px';
+        particle.style.backgroundColor = color;
+        particle.style.borderRadius = '50%';
+        particle.style.pointerEvents = 'none';
+        particle.style.zIndex = '9999';
+        
+        const angle = (Math.PI * 2 * i) / count;
+        const velocity = 2 + Math.random() * 3;
+        const tx = Math.cos(angle) * velocity * 50;
+        const ty = Math.sin(angle) * velocity * 50;
+        
+        particle.style.animation = `particleExplosion 0.8s ease-out forwards`;
+        particle.style.setProperty('--tx', `${tx}px`);
+        particle.style.setProperty('--ty', `${ty}px`);
+        
+        document.body.appendChild(particle);
+        setTimeout(() => particle.remove(), 800);
+    }
+}
+
+/**
+ * Add particle animation CSS
+ */
+if (!document.getElementById('particle-style')) {
+    const style = document.createElement('style');
+    style.id = 'particle-style';
+    style.textContent = `
+        @keyframes particleExplosion {
+            0% {
+                opacity: 1;
+                transform: translate(0, 0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(var(--tx), var(--ty)) scale(0);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
+ * Screen transition effect
+ */
+function transitionScreen(fromScreen, toScreen) {
+    fromScreen.style.animation = 'fadeOut 0.3s ease-out';
+    setTimeout(() => {
+        fromScreen.classList.remove('active');
+        fromScreen.style.animation = '';
+        toScreen.classList.add('active');
+        toScreen.style.animation = 'fadeIn 0.3s ease-in';
+        setTimeout(() => toScreen.style.animation = '', 300);
+    }, 300);
+}
+
+/**
+ * Add fade out animation
+ */
+if (!document.getElementById('fade-out-style')) {
+    const style = document.createElement('style');
+    style.id = 'fade-out-style';
+    style.textContent = `
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+

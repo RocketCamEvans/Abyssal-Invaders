@@ -38,6 +38,10 @@ class Player:
         self.temp_attack_boost = 0  # Temporary attack boost from items
         self.temp_defense_boost = 0  # Temporary defense boost from items
         
+        # Minimap data
+        self.room_positions = {}  # Track room positions: { roomId: {x, y} }
+        self.room_info = {}  # Track room features: { roomId: {hasStairs, isShop} }
+        
     def take_damage(self, damage: int) -> bool:
         """
         Apply damage to the player.
@@ -306,7 +310,9 @@ class Player:
             "ally_used": self.ally_used,
             "battle_room": self.battle_room,
             "temp_attack_boost": self.temp_attack_boost,
-            "temp_defense_boost": self.temp_defense_boost
+            "temp_defense_boost": self.temp_defense_boost,
+            "room_positions": self.room_positions,
+            "room_info": self.room_info
         }
     
     @classmethod
@@ -347,5 +353,9 @@ class Player:
         player.battle_room = data.get("battle_room", None)
         player.temp_attack_boost = data.get("temp_attack_boost", 0)
         player.temp_defense_boost = data.get("temp_defense_boost", 0)
+        
+        # Minimap data (with defaults for backward compatibility)
+        player.room_positions = data.get("room_positions", {})
+        player.room_info = data.get("room_info", {})
         
         return player

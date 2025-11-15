@@ -107,7 +107,8 @@ class ScoringController:
             success = self.highscore_db.add_score(
                 player_name=player.name,
                 score=player.gold,
-                floor=player.floor
+                floor=player.floor,
+                level=player.level
             )
             
             if success:
@@ -154,6 +155,7 @@ class ScoringController:
                     "name": score["name"],
                     "gold": score["gold"],
                     "floor": score["floor"],
+                    "level": score.get("level", 1),  # Default to 1 if not present (backward compatibility)
                     "score_display": f"{score['gold']} gold (Floor {score['floor']})"
                 })
             

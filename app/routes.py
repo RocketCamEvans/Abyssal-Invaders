@@ -14,6 +14,10 @@ from .utils import UserDB, create_error_response, create_success_response, sanit
 # Create blueprint
 bp = Blueprint('api', __name__, url_prefix='/api')
 
+# Register sprite routes
+from .routes_sprites import register_sprite_routes
+register_sprite_routes(bp)
+
 # Initialize controllers (will be created per request to avoid state issues)
 def get_controllers():
     """Get fresh controller instances."""
@@ -355,6 +359,13 @@ def move_player():
         print(f"DEBUG MOVE END: Player has {len(player.allies)} allies before saving")
         print(f"DEBUG MOVE END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
+        # Update minimap data from frontend if provided
+        data = request.get_json() or {}
+        if 'room_positions' in data:
+            player.room_positions = data['room_positions']
+        if 'room_info' in data:
+            player.room_info = data['room_info']
+        
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
         
@@ -656,6 +667,74 @@ def delete_player():
         
     except Exception as e:
         return create_error_response(f"Error deleting player: {str(e)}"), 500
+
+
+@bp.route('/player/load', methods=['POST'])
+def load_player():
+    """
+    Load an existing player session with full game state.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
+            return create_error_response("Missing session_id"), 400
+
+        session_id = req.session_id
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Set the session for session-specific room management
+        controllers['movement'].set_session(player.session_id)
+        
+        # Get current room
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        response_data = {
+            'session_id': player.session_id,
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'floor': player.floor,
+                'room_id': player.room_id,
+                'level': player.level,
+                'attack_power': player.attack_power,
+                'defense': player.defense,
+                'max_health': player.max_health,
+                'visited_rooms': list(player.visited_rooms),
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                'allies_count': len(player.allies),
+                'inventory': [item.get_item_info() for item in player.inventory],
+                'is_alive': player.is_alive(),
+                'in_battle': player.in_battle,
+                'current_enemy': player.current_enemy,
+                'ally_used': player.ally_used if hasattr(player, 'ally_used') else False,
+                'battle_room': player.battle_room if hasattr(player, 'battle_room') else None,
+                'room_positions': player.room_positions if hasattr(player, 'room_positions') else {},
+                'room_info': player.room_info if hasattr(player, 'room_info') else {}
+            },
+            'current_room': current_room.get_room_info()
+        }
+        
+        return create_success_response(response_data, f"Welcome back, {player.name}!")
+        
+    except Exception as e:
+        return create_error_response(f"Error loading player: {str(e)}"), 500
 
 
 @bp.route('/player/heal', methods=['POST'])

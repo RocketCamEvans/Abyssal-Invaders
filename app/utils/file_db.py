@@ -200,7 +200,7 @@ class HighScoreDB(FileDB):
         super().__init__(data_dir)
         self.highscores_file = "highscores"
     
-    def add_score(self, player_name: str, score: int, floor: int) -> bool:
+    def add_score(self, player_name: str, score: int, floor: int, level: int = 1) -> bool:
         """
         Add a new high score.
         
@@ -208,6 +208,7 @@ class HighScoreDB(FileDB):
             player_name (str): Name of the player
             score (int): Gold score achieved
             floor (int): Floor reached
+            level (int): Player level achieved
             
         Returns:
             bool: True if successful, False otherwise
@@ -218,6 +219,7 @@ class HighScoreDB(FileDB):
             "name": player_name,
             "gold": score,
             "floor": floor,
+            "level": level,
             "timestamp": None  # Could add timestamp if needed
         }
         

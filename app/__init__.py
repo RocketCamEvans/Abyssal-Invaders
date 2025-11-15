@@ -56,6 +56,7 @@ def _register_frontend_routes(app: Flask):
         app (Flask): Flask application instance
     """
     frontend_dir = Path(__file__).parent / 'frontend'
+    sprites_dir = Path(__file__).parent / 'sprites'
     
     @app.route('/')
     def index():
@@ -66,6 +67,11 @@ def _register_frontend_routes(app: Flask):
     def serve_static(filename):
         """Serve static files (CSS, JS)."""
         return send_from_directory(str(frontend_dir), filename)
+    
+    @app.route('/static/sprites/<path:filename>')
+    def serve_sprite(filename):
+        """Serve monster sprite files."""
+        return send_from_directory(str(sprites_dir), filename)
     
     # Register error handlers
     _register_error_handlers(app)

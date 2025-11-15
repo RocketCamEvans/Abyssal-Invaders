@@ -9,17 +9,17 @@ from typing import Optional
 # Predefined allies with their types and effects
 PREDEFINED_ALLIES = [
     # Healers
-    {"name": "Freaky Fred", "type": "healer", "value": 18, "description": "Freaky Fred does a rather entrancing dance. The wicked moves that he brings forth gives you immense spirit!"},
-    {"name": "Supreme Astrologer Kassidy", "type": "healer", "value": 22, "description": "Kassidy has bestowed a positive horoscope upon you, granting you a great boost in strength!"},
+    {"name": "Freaky Fred", "type": "healer", "value": 18, "description": "Freaky Fred does a rather entrancing dance. The wicked moves that he brings forth gives you immense spirit!", "sprite": "player_dancer_skirt_entertainer_singer.png"},
+    {"name": "Supreme Astrologer Kassidy", "type": "healer", "value": 22, "description": "Kassidy has bestowed a positive horoscope upon you, granting you a great boost in strength!", "sprite": "player_wizard_arcane_spectral_mage_magic_wand_astrologist.png"},
     
     # Attackers
-    {"name": "Chugg the Conquerer", "type": "attacker", "value": 35, "description": "Chugg teleports the enemy onto an island, where the fish queen washes a tsunami over them!"},
-    {"name": "Vanguard Clayton", "type": "attacker", "value": 22, "description": "Clayton rides in on his great dane, slashing at the enemy!"},
-    {"name": "Moss Lurker", "type": "attacker", "value": 15, "description": "Originally an enemy, the Moss Lurker has seen the error of its ways and now aids you by releasing poisonous spores upon the enemies!"},
+    {"name": "Chugg the Conquerer", "type": "attacker", "value": 35, "description": "Chugg teleports the enemy onto an island, where the fish queen washes a tsunami over them!", "sprite": "player_pirate_sea_beard_hat_man.png"},
+    {"name": "Vanguard Clayton", "type": "attacker", "value": 22, "description": "Clayton rides in on his great dane, slashing at the enemy!", "sprite": "player_knight_dog_sword_shield_armor_warrior_great.png"},
+    {"name": "Moss Lurker", "type": "attacker", "value": 15, "description": "Originally an enemy, the Moss Lurker has seen the error of its ways and now aids you by releasing poisonous spores upon the enemies!", "sprite": "monster_grass_moss_creeper.png"},
     
     # Skippers
-    {"name": "Mad Jester Juju", "type": "skipper", "value": 0, "description": "Juju gaslights the enemy into believing they already took their turn!"},
-    {"name": "Sebastian", "type": "skipper", "value": 0, "description": "NOBODY does Sebastian. The enemy agrees and decides to give up their turn."},
+    {"name": "Mad Jester Juju", "type": "skipper", "value": 0, "description": "Juju gaslights the enemy into believing they already took their turn!", "sprite": "player_jester_silly_mad_insane_crazy_clown_harlequin.png"},
+    {"name": "Sebastian", "type": "skipper", "value": 0, "description": "NOBODY does Sebastian. The enemy agrees and decides to give up their turn.", "sprite": "player_casual_office_worker_normal.png"},
 ]
 
 
@@ -29,13 +29,14 @@ class Ally:
     Allies persist between battles until used.
     """
     
-    def __init__(self, name: str = "", ally_type: str = "attacker", value: int = 0, description: str = "", floor: int = 1):
+    def __init__(self, name: str = "", ally_type: str = "attacker", value: int = 0, description: str = "", floor: int = 1, sprite: str = ""):
         self.name = name or "Mysterious Helper"
         self.ally_type = ally_type  # 'healer', 'attacker', or 'skipper'
         self.value = value  # Healing amount, damage amount, or 0 for skipper
         self.description = description or "A helpful coworker appears to aid you."
         self.floor = floor
         self.used = False
+        self.sprite = sprite or "ally_warrior_human_male.png"  # Default sprite
         
         # For backwards compatibility
         self.attack_power = value if ally_type == "attacker" else 0
@@ -101,6 +102,7 @@ class Ally:
             "description": self.description,
             "floor": self.floor,
             "used": self.used,
+            "sprite": self.sprite,
             # For backwards compatibility with old code
             "attack_power": self.value if self.ally_type == "attacker" else 0
         }
@@ -121,7 +123,8 @@ class Ally:
             ally_type=data.get("type", "attacker"),
             value=data.get("value", 0),
             description=data.get("description", "A helpful coworker."),
-            floor=data.get("floor", 1)
+            floor=data.get("floor", 1),
+            sprite=data.get("sprite", "ally_warrior_human_male.png")
         )
         ally.used = data.get("used", False)
         return ally
@@ -146,7 +149,8 @@ class Ally:
             ally_type=ally_template["type"],
             value=ally_template["value"],
             description=ally_template["description"],
-            floor=floor
+            floor=floor,
+            sprite=ally_template.get("sprite", "ally_warrior_human_male.png")
         )
     
     @classmethod
@@ -168,7 +172,8 @@ class Ally:
                     ally_type=ally_template["type"],
                     value=ally_template["value"],
                     description=ally_template["description"],
-                    floor=floor
+                    floor=floor,
+                    sprite=ally_template.get("sprite", "ally_warrior_human_male.png")
                 )
         return None
     
@@ -184,5 +189,6 @@ class Ally:
             "type": self.ally_type,
             "value": self.value,
             "description": self.description,
-            "available": self.is_available()
+            "available": self.is_available(),
+            "sprite": self.sprite
         }
