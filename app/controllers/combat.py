@@ -211,9 +211,27 @@ class CombatController:
             print(f"DEBUG COMBAT: After using ally, player still has {len(player.allies)} allies")
             
         else:
-            damage = self._execute_player_attack(player, enemy, battle_log)
+            # Determine turn order based on speed
+            player_goes_first = player.speed >= enemy.speed
+            
+            if player_goes_first:
+                # Player attacks first
+                damage = self._execute_player_attack(player, enemy, battle_log)
+                
+                # Check if enemy is defeated
+                if enemy.is_alive():
+                    # Enemy attacks second (if still alive)
+                    self._execute_enemy_attack(player, enemy, battle_log)
+            else:
+                # Enemy attacks first
+                self._execute_enemy_attack(player, enemy, battle_log)
+                
+                # Check if player is still alive for their attack
+                if player.is_alive():
+                    # Player attacks second (if still alive)
+                    damage = self._execute_player_attack(player, enemy, battle_log)
         
-        # Check if enemy is defeated
+        # Check if enemy is defeated after all attacks
         if not enemy.is_alive():
             reward = self._handle_enemy_defeat(player, enemy)
             
@@ -255,16 +273,10 @@ class CombatController:
             
             return create_success_response(response_data, "Enemy defeated!")
         
-        # Enemy counterattack
-        self._execute_enemy_attack(player, enemy, battle_log)
-        
-        print(f"DEBUG COMBAT TURN END: After enemy attack, player has {len(player.allies)} allies")
-        print(f"DEBUG COMBAT TURN END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
-        
         # Update stored enemy data
         player.current_enemy = enemy.to_dict()
         
-        # Check if player is defeated
+        # Check if player is defeated after all attacks
         if not player.is_alive():
             player.end_battle()
             
@@ -302,7 +314,7 @@ class CombatController:
     
     def execute_flee(self, player: Player) -> Dict[str, Any]:
         """
-        Execute fleeing from battle.
+        Execute fleeing from battle using speed-based formula.
         
         Args:
             player (Player): Player object
@@ -313,37 +325,30 @@ class CombatController:
         if not player.in_battle:
             return create_error_response("Player is not in battle!")
         
-        # Get room information before fleeing
+        # Reconstruct enemy from player's current_enemy data
+        if not player.current_enemy:
+            return create_error_response("No enemy data found!")
+        
+        enemy = Enemy.from_dict(player.current_enemy)
+        
+        # Get room information
         room_data = player.battle_room
         room = Room.from_dict(room_data) if room_data else None
         
-        gold_lost = player.flee_battle()
+        # Use the new speed-based flee system
+        success, result = self.flee_from_combat(player, enemy)
         
-        response_data = {
-            "messages": [f"You fled from battle and lost {gold_lost} gold!"],
-            "gold_lost": gold_lost,
-            "battle_ended": True,
-            "fled": True,
-            "player": {
-                "health": f"{player.health}/{player.max_health}",
-                "gold": player.gold,
-                "level": player.level,
-                "in_battle": player.in_battle,
-                "is_alive": player.is_alive(),
-                "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                "ally_used": player.ally_used
-            }
-        }
+        # Add room direction info after fleeing (only if successful)
+        if success and room:
+            result_data = result.get('data', {})
+            if result_data:
+                result_data["room_info"] = {
+                    "current_room": room.get_room_info(),
+                    "available_directions": room.get_available_directions(),
+                    "message": "You escaped! You can now explore the room or move to safety."
+                }
         
-        # Add room direction info after fleeing
-        if room:
-            response_data["room_info"] = {
-                "current_room": room.get_room_info(),
-                "available_directions": room.get_available_directions(),
-                "message": "You escaped! You can now explore the room or move to safety."
-            }
-        
-        return create_success_response(response_data, "Fled from battle")
+        return result
     
     def _generate_ai_battle_description(self, player: Player, enemy: Enemy, room: Room) -> str:
         """
@@ -359,17 +364,15 @@ class CombatController:
         """
         if self.openai_client:
             try:
-                prompt = f"""You are narrating a whimsical fantasy battle in a cursed office building!
+                prompt = f"""Battle starting in cursed office building!
 
-An evil wizard turned Rocket Software into a monster-filled labyrinth. Employees fight back with fantasy powers!
-
-Player: {player.name} (HP: {player.health})
+Player: {player.name} (HP:{player.health})
 Enemy: {enemy.name} - {enemy.description}
 Location: {room.name}
 
-Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). Be fantastical, slightly funny, and whimsical. Keep it brief!"""
+Write 1-2 dramatic sentences (MAX 200 chars) setting the scene. Make it tense and atmospheric, fitting the office-fantasy theme."""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.8, generation_type="battle_description")
+                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.7, generation_type="battle_description")
                 if description and len(description) <= 250:
                     return description[:250]  # Enforce limit
             except Exception as e:
@@ -394,16 +397,14 @@ Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). 
         """
         if self.openai_client:
             try:
-                attacker_type = "office warrior" if is_player else "cursed office creature"
-                prompt = f"""CRITICAL HIT in the cursed Rocket Software building!
+                attacker_type = "office warrior" if is_player else "cursed creature"
+                prompt = f"""CRITICAL HIT in the cursed office!
 
 {attacker_name} ({attacker_type}) lands a devastating blow on {target_name} for {damage} damage!
 
-Write a SHORT, exciting critical hit description (MAX 150 characters). Be whimsical, slightly funny, and fantastical. Explain what made this hit so perfect!
+Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, fitting the office-fantasy setting."""
 
-Keep it BRIEF and punchy!"""
-
-                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.9, generation_type="critical_hit")
+                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.75, generation_type="critical_hit")
                 if description and len(description) <= 200:
                     return description[:200]  # Enforce limit
             except Exception as e:
@@ -753,12 +754,35 @@ Keep it BRIEF and punchy!"""
         # Reset player health to 1 (don't permanently kill them)
         player.health = 1
         
+        # Generate custom death message using LLM
+        death_message = f"You have been defeated by {enemy.name}! You lost {gold_lost} gold but managed to escape with your life."
+        
+        if self.openai_client:
+            try:
+                prompt = f"""Player defeated in cursed office dungeon!
+
+Defeated by: {enemy.name} - {enemy.description}
+
+Write a dramatic defeat message (1-2 sentences). Make it tense but not hopeless - they lost {gold_lost} gold but barely survived with 1 HP. Fit the office-fantasy setting."""
+                
+                custom_message = self.openai_client.generate_completion(
+                    prompt, 
+                    max_tokens=80, 
+                    temperature=0.75, 
+                    generation_type="death_message"
+                )
+                
+                if custom_message and len(custom_message.strip()) > 10:
+                    death_message = custom_message.strip()
+            except Exception as e:
+                print(f"Failed to generate custom death message: {e}")
+        
         return {
             "outcome": "defeat",
             "gold_lost": gold_lost,
             "remaining_gold": player.gold,
             "health_restored": 1,
-            "message": f"You have been defeated by {enemy.name}! You lost {gold_lost} gold but managed to escape with your life."
+            "message": death_message
         }
     
     def _handle_enemy_defeat(self, player: Player, enemy: Enemy) -> Dict[str, Any]:
@@ -862,22 +886,117 @@ Keep it BRIEF and punchy!"""
         Returns:
             Tuple[bool, Dict[str, Any]]: (Success, Result information)
         """
-        # Base flee chance is 70%, modified by player health
-        health_ratio = player.health / player.max_health
-        flee_chance = 0.5 + (health_ratio * 0.3)  # 50-80% based on health
+        # Calculate flee chance based on formula:
+        # 50% + 3.5*(player_speed - enemy_speed) - floor(current_floor_number/5)
+        import math
+        import random
         
-        if random.random() < flee_chance:
-            # Successful flee
+        # Check if enemy has skip_next_turn active (from skipper ally)
+        # If enemy is skipped, fleeing is guaranteed with no cost
+        if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn > 0:
+            print(f"DEBUG FLEE: Enemy turn is skipped by ally! Guaranteed escape with no cost.")
+            
+            # End the battle without losing gold or taking damage
+            player.end_battle()
+            
             return True, create_success_response({
                 "outcome": "fled",
-                "message": "You successfully fled from combat!"
+                "message": "With the enemy distracted by your ally, you slip away unnoticed! No gold lost.",
+                "gold_lost": 0,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                }
+            })
+        
+        speed_difference = player.speed - enemy.speed
+        floor_penalty = math.floor(player.floor / 5)
+        
+        # Calculate components (using percentages as decimals)
+        base_chance = 0.50  # 50%
+        speed_modifier = speed_difference * 0.035  # 3.5% per speed difference
+        floor_modifier = floor_penalty * 0.01  # 1% per 5 floors
+        
+        flee_chance = base_chance + speed_modifier - floor_modifier
+        
+        # Clamp flee chance between 10% and 95%
+        flee_chance_unclamped = flee_chance
+        flee_chance = max(0.10, min(0.95, flee_chance))
+        
+        # Generate random roll
+        random_roll = random.random()
+        
+        print(f"DEBUG FLEE: Player speed: {player.speed}, Enemy speed: {enemy.speed}")
+        print(f"DEBUG FLEE: Speed diff: {speed_difference}, Floor: {player.floor}, Floor penalty: {floor_penalty}")
+        print(f"DEBUG FLEE: Base: {base_chance*100:.1f}%, Speed mod: {speed_modifier*100:.1f}%, Floor mod: -{floor_modifier*100:.1f}%")
+        print(f"DEBUG FLEE: Calculated chance: {flee_chance_unclamped*100:.1f}% -> Clamped: {flee_chance*100:.1f}%")
+        print(f"DEBUG FLEE: Random roll: {random_roll:.4f}, Success threshold: {flee_chance:.4f}")
+        print(f"DEBUG FLEE: Result: {'SUCCESS' if random_roll < flee_chance else 'FAILURE'}")
+        
+        if random_roll < flee_chance:
+            # Successful flee - lose half of current gold
+            gold_lost = player.gold // 2
+            player.gold -= gold_lost
+            
+            # End the battle
+            player.end_battle()
+            
+            return True, create_success_response({
+                "outcome": "fled",
+                "message": f"You successfully fled from combat! You lost {gold_lost} gold in your hasty retreat.",
+                "gold_lost": gold_lost,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                }
             })
         else:
-            # Failed flee - enemy gets a free attack
-            damage = self._calculate_enemy_damage(enemy)
-            player.take_damage(damage)
+            # Failed flee - enemy gets a free attack (bypasses defense)
+            base_damage = enemy.attack()
+            # Apply damage directly without defense reduction (player is caught off-guard)
+            player.health = max(0, player.health - base_damage)
             
-            return False, create_error_response(
-                f"Failed to flee! {enemy.name} attacks you for {damage} damage as you try to escape. "
-                f"You have {player.health} health remaining."
-            )
+            message = (f"Failed to flee! {enemy.name} catches you off-guard and attacks for {base_damage} damage! "
+                      f"You have {player.health} health remaining.")
+            
+            # Check if player died from the flee attempt
+            if not player.is_alive():
+                player.end_battle()
+                return False, create_success_response({
+                    "messages": [message, "You have been defeated!"],
+                    "battle_ended": True,
+                    "fled": False,
+                    "victory": False,
+                    "player": {
+                        "health": f"{player.health}/{player.max_health}",
+                        "gold": player.gold,
+                        "level": player.level,
+                        "in_battle": player.in_battle,
+                        "is_alive": player.is_alive(),
+                        "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                    },
+                    "enemy": enemy.to_dict()
+                }, "Player defeated while fleeing!")
+            
+            # Return updated player state on failed flee (battle continues)
+            return False, create_success_response({
+                "messages": [message],
+                "battle_ended": False,
+                "fled": False,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "level": player.level,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                    "ally_used": player.ally_used
+                },
+                "enemy": enemy.to_dict()
+            }, "Failed to flee!")

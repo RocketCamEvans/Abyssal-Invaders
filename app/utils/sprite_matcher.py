@@ -118,8 +118,22 @@ class SpriteMatcher:
                 print(f"  {i+1}. {match['sprite']['filename']} - score: {match['score']}, tags: {match['matched_tags']}")
         
         if scored_sprites:
-            best_match = scored_sprites[0]['sprite']
-            print(f"✓ Selected: '{best_match['filename']}' (score: {scored_sprites[0]['score']})")
+            # Get the highest score
+            highest_score = scored_sprites[0]['score']
+            
+            # Get all sprites with the highest score (handles ties)
+            top_sprites = [s for s in scored_sprites if s['score'] == highest_score]
+            
+            # Randomly select from sprites with highest score
+            import random
+            selected_match = random.choice(top_sprites)
+            best_match = selected_match['sprite']
+            
+            if len(top_sprites) > 1:
+                print(f"✓ {len(top_sprites)} sprites tied with score {highest_score}, randomly selected: '{best_match['filename']}'")
+            else:
+                print(f"✓ Selected: '{best_match['filename']}' (score: {highest_score})")
+            
             return best_match
         
         # If no matches, return a random sprite as fallback

@@ -19,6 +19,7 @@ class Player:
         self.gold = 0
         self.attack_power = 10
         self.defense = 5
+        self.speed = 10  # Speed stat for turn order and flee chance
         self.floor = 1
         self.room_id = "start"
         self.visited_rooms = set()
@@ -77,11 +78,56 @@ class Player:
     def add_ally(self, ally):
         """
         Add an ally to the player's party.
+        Max 4 allies, no duplicates by name.
         
         Args:
             ally: Ally object to add
+            
+        Returns:
+            dict: Result with success status and message
         """
+        # Check if ally already exists
+        for existing_ally in self.allies:
+            if existing_ally.name == ally.name:
+                return {
+                    "success": False,
+                    "message": f"{ally.name} is already in your party!"
+                }
+        
+        # Check if at max capacity
+        if len(self.allies) >= 4:
+            return {
+                "success": False,
+                "message": "Your party is full! (Max 4 allies) Fire an ally to make room.",
+                "at_capacity": True
+            }
+        
         self.allies.append(ally)
+        return {
+            "success": True,
+            "message": f"{ally.name} joined your party!"
+        }
+    
+    def remove_ally(self, ally_index: int):
+        """
+        Remove an ally from the player's party (fire them).
+        
+        Args:
+            ally_index (int): Index of the ally to remove
+            
+        Returns:
+            dict: Result with success status and message
+        """
+        if 0 <= ally_index < len(self.allies):
+            ally = self.allies.pop(ally_index)
+            return {
+                "success": True,
+                "message": f"{ally.name} has been fired and left the party."
+            }
+        return {
+            "success": False,
+            "message": "Invalid ally index."
+        }
     
     def add_item(self, item):
         """
@@ -198,6 +244,13 @@ class Player:
         self.battle_room = None
         self.current_ally = None
         self.ally_used = False
+        
+        # Reset all allies' "used" flag so they can be used in next battle
+        for ally in self.allies:
+            ally.used = False
+        
+        # Remove allies with no uses remaining
+        self.allies = [ally for ally in self.allies if ally.uses_remaining > 0]
     
     def flee_battle(self) -> int:
         """
@@ -253,6 +306,7 @@ class Player:
         self.max_health += 5  # +5 max health per level
         self.attack_power += 2  # +2 attack per level
         self.defense += 1  # +1 defense per level
+        self.speed += 1  # +1 speed per level
         
         # Heal player to full on level up
         health_increase = self.max_health - old_max_health
@@ -297,6 +351,7 @@ class Player:
             "gold": self.gold,
             "attack_power": self.attack_power,
             "defense": self.defense,
+            "speed": self.speed,
             "floor": self.floor,
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
@@ -335,6 +390,7 @@ class Player:
         player.gold = data["gold"]
         player.attack_power = data["attack_power"]
         player.defense = data["defense"]
+        player.speed = data.get("speed", 10)  # Default to 10 for backward compatibility
         player.floor = data["floor"]
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])

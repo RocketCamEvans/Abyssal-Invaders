@@ -57,6 +57,7 @@ function initializeElements() {
         playerAllies: document.getElementById('player-allies'),
         playerAttack: document.getElementById('player-attack'),
         playerDefense: document.getElementById('player-defense'),
+        playerSpeed: document.getElementById('player-speed'),
         
         // Room display
         roomName: document.getElementById('room-name'),
@@ -74,6 +75,7 @@ function initializeElements() {
         enemyHealthText: document.getElementById('enemy-health-text'),
         enemyAttack: document.getElementById('enemy-attack'),
         enemyDefense: document.getElementById('enemy-defense'),
+        enemySpeed: document.getElementById('enemy-speed'),
         attackBtn: document.getElementById('attack-btn'),
         useAllyBtn: document.getElementById('use-ally-btn'),
         useItemBtn: document.getElementById('use-item-btn'),
@@ -587,16 +589,6 @@ async function continueGame() {
         // Restore minimap data if available, otherwise initialize with current room
         if (result.data.player.room_positions && Object.keys(result.data.player.room_positions).length > 0) {
             gameState.roomPositions = result.data.player.room_positions;
-            console.log('Loaded room_positions:', gameState.roomPositions);
-            console.log('Current room_id:', gameState.player.room_id);
-            console.log('Current room in positions?', gameState.roomPositions[gameState.player.room_id]);
-            // Ensure current room is in the map (in case it's missing)
-            if (!gameState.roomPositions[gameState.player.room_id]) {
-                console.log('Current room NOT found in positions, adding at {x:0, y:0}');
-                gameState.roomPositions[gameState.player.room_id] = { x: 0, y: 0 };
-            } else {
-                console.log('Current room found in positions at:', gameState.roomPositions[gameState.player.room_id]);
-            }
         } else {
             gameState.roomPositions = {};
             gameState.roomPositions[gameState.player.room_id] = { x: 0, y: 0 };
@@ -604,13 +596,6 @@ async function continueGame() {
         
         if (result.data.player.room_info && Object.keys(result.data.player.room_info).length > 0) {
             gameState.roomInfo = result.data.player.room_info;
-            // Ensure current room info is present
-            if (!gameState.roomInfo[gameState.player.room_id]) {
-                gameState.roomInfo[gameState.player.room_id] = {
-                    hasStairs: gameState.currentRoom.has_staircase || false,
-                    isShop: gameState.currentRoom.is_shop || false
-                };
-            }
         } else {
             gameState.roomInfo = {};
             gameState.roomInfo[gameState.player.room_id] = {
@@ -735,6 +720,7 @@ function updatePlayerDisplay() {
     elements.playerAllies.textContent = gameState.player.allies ? gameState.player.allies.length : 0;
     elements.playerAttack.textContent = gameState.player.attack_power || 10;
     elements.playerDefense.textContent = gameState.player.defense || 5;
+    elements.playerSpeed.textContent = gameState.player.speed || 10;
     
     // Update allies list
     updateAlliesList();
@@ -756,24 +742,113 @@ function updateAlliesList() {
         return;
     }
     
-    // Display actual ally details
-    alliesList.innerHTML = gameState.player.allies.map((ally, index) => {
+    // Filter out allies with no uses remaining
+    const availableAllies = gameState.player.allies.filter(ally => ally.uses_remaining > 0);
+    
+    if (availableAllies.length === 0) {
+        alliesList.innerHTML = '<p class="empty-state">No allies available (all have been exhausted)</p>';
+        return;
+    }
+    
+    // Display actual ally details with usage count
+    alliesList.innerHTML = availableAllies.map((ally, index) => {
+        // Find the original index in the full allies array
+        const originalIndex = gameState.player.allies.indexOf(ally);
         const typeEmoji = {
             'healer': '💚',
             'attacker': '⚔️',
             'skipper': '⏸️'
         };
         
+        const usesText = ally.uses_remaining !== undefined 
+            ? `${ally.uses_remaining}/${ally.max_uses || 3}`
+            : '3/3';
+        
+        const typeValue = ally.type === 'skipper' ? 'Skip Turn' : 
+                         ally.type === 'healer' ? `+${ally.value} HP` :
+                         `${ally.value} DMG`;
+        
         return `
-            <div class="ally-card" data-ally-index="${index}">
+            <div class="ally-card clickable" data-ally-index="${originalIndex}" onclick="showAllyDetails(${originalIndex})">
                 <div class="ally-header">
                     <span class="ally-icon">${typeEmoji[ally.type] || '🤝'}</span>
                     <span class="ally-name">${ally.name}</span>
                 </div>
-                <div class="ally-type">${ally.type} - ${ally.value > 0 ? ally.value : 'Skip Turn'}</div>
+                <div class="ally-info-row">
+                    <span class="ally-type">${ally.type}</span>
+                    <span class="ally-uses">Uses: ${usesText}</span>
+                </div>
+                <div class="ally-value">${typeValue}</div>
             </div>
         `;
     }).join('');
+}
+
+// Show ally details in a modal
+function showAllyDetails(allyIndex) {
+    if (!gameState.player || !gameState.player.allies || allyIndex >= gameState.player.allies.length) {
+        return;
+    }
+    
+    const ally = gameState.player.allies[allyIndex];
+    
+    // Use the existing ally encounter display
+    if (!elements.allyEncounterDisplay) return;
+    
+    const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
+    
+    const typeEmoji = {
+        'healer': '💚',
+        'attacker': '⚔️',
+        'skipper': '⏸️'
+    };
+    
+    const typeDescription = {
+        'healer': `Heals ${ally.value} HP`,
+        'attacker': `Deals ${ally.value} damage`,
+        'skipper': 'Skips enemy turn for 2 rounds'
+    };
+    
+    const usesText = ally.uses_remaining !== undefined 
+        ? `${ally.uses_remaining}/${ally.max_uses || 3} uses remaining`
+        : '3/3 uses remaining';
+    
+    // Update the display elements
+    elements.allyEncounterName.textContent = `${typeEmoji[ally.type] || '🤝'} ${ally.name}`;
+    elements.allyEncounterDescription.innerHTML = `
+        <div style="text-align: center;">
+            <div style="color: #6aa3d0; font-size: 1.1rem; font-weight: bold; margin: 15px 0;">
+                ${ally.type.toUpperCase()}: ${typeDescription[ally.type]}
+            </div>
+            <div style="color: var(--accent-info); font-size: 1rem; font-weight: bold; margin: 10px 0;">
+                ${usesText}
+            </div>
+            <div style="color: var(--text-secondary); font-style: italic; margin: 20px 0; line-height: 1.6;">
+                ${ally.description || 'A helpful ally.'}
+            </div>
+            <button class="btn btn-danger" onclick="confirmFireAlly(${allyIndex})" style="margin-top: 10px;">Fire Ally</button>
+        </div>
+    `;
+    elements.allyEncounterSprite.src = spritePath;
+    
+    // Change the close button to just close (not fire)
+    elements.allyEncounterCloseBtn.onclick = () => {
+        elements.allyEncounterDisplay.classList.add('hidden');
+    };
+    
+    // Show the display
+    elements.allyEncounterDisplay.classList.remove('hidden');
+}
+
+function closeAllyDetails() {
+    if (elements.allyEncounterDisplay) {
+        elements.allyEncounterDisplay.classList.add('hidden');
+    }
+}
+
+function confirmFireAlly(allyIndex) {
+    closeAllyDetails();
+    fireAlly(allyIndex);
 }
 
 // Update inventory display
@@ -933,8 +1008,14 @@ function showAllyModal() {
         
         const spritePath = ally.sprite ? `/static/sprites/${ally.sprite}` : '/static/sprites/player_knight_dog_sword_shield_armor_warrior_great.png';
         
+        const usesText = ally.uses_remaining !== undefined 
+            ? `${ally.uses_remaining}/${ally.max_uses || 3} uses left`
+            : '3/3 uses left';
+        
+        const isDisabled = ally.uses_remaining === 0 || ally.used ? 'disabled' : '';
+        
         return `
-            <div class="ally-card" data-ally-index="${index}">
+            <div class="ally-card ${isDisabled}" data-ally-index="${index}">
                 <div class="ally-sprite-preview">
                     <img src="${spritePath}" alt="${ally.name}" />
                 </div>
@@ -947,9 +1028,10 @@ function showAllyModal() {
                     <span class="ally-type">${ally.type}</span>
                     <span class="ally-value">${typeDescription[ally.type]}</span>
                 </div>
+                <div class="ally-uses">${usesText}</div>
                 <div class="ally-card-buttons">
-                    <button class="btn btn-primary btn-use-ally" data-ally-index="${index}">Call Ally</button>
-                    <button class="btn btn-secondary btn-view-ally" data-ally-index="${index}">View Details</button>
+                    <button class="btn btn-primary btn-use-ally" data-ally-index="${index}" ${isDisabled}>Call Ally</button>
+                    <button class="btn btn-danger btn-fire-ally" data-ally-index="${index}">Fire</button>
                 </div>
             </div>
         `;
@@ -960,6 +1042,14 @@ function showAllyModal() {
         btn.addEventListener('click', (e) => {
             const allyIndex = parseInt(e.target.getAttribute('data-ally-index'));
             useAlly(allyIndex);
+        });
+    });
+    
+    // Attach click handlers to fire buttons
+    allyList.querySelectorAll('.btn-fire-ally').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const allyIndex = parseInt(e.target.getAttribute('data-ally-index'));
+            fireAlly(allyIndex);
         });
     });
     
@@ -1031,6 +1121,80 @@ async function useAlly(allyIndex) {
     await performCombatAction('attack', false, allyIndex);
 }
 
+// Fire (remove) an ally from party
+async function fireAlly(allyIndex) {
+    console.log('DEBUG fireAlly: Starting with allyIndex:', allyIndex);
+    console.log('DEBUG fireAlly: Current allies:', gameState.player.allies);
+    
+    const ally = gameState.player.allies[allyIndex];
+    if (!ally) {
+        console.log('DEBUG fireAlly: No ally found at index', allyIndex);
+        return;
+    }
+    
+    console.log('DEBUG fireAlly: Attempting to fire:', ally.name);
+    
+    if (!confirm(`Are you sure you want to fire ${ally.name}? They will be removed from your party permanently.`)) {
+        console.log('DEBUG fireAlly: User cancelled');
+        return;
+    }
+    
+    try {
+        console.log('DEBUG fireAlly: Sending request to server...');
+        const response = await fetch('/api/player/fire-ally', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: gameState.sessionId,
+                ally_index: allyIndex
+            })
+        });
+        
+        console.log('DEBUG fireAlly: Response status:', response.status);
+        const data = await response.json();
+        console.log('DEBUG fireAlly: Response data:', data);
+        
+        if (!data.error) {
+            console.log('DEBUG fireAlly: Success! New allies:', data.data.allies);
+            addLogEntry(data.message, 'info');
+            
+            // Update the allies array with the returned data
+            gameState.player.allies = data.data.allies.map(allyData => ({
+                name: allyData.name,
+                type: allyData.type,
+                value: allyData.value,
+                description: allyData.description,
+                sprite: allyData.sprite,
+                uses_remaining: allyData.uses_remaining,
+                max_uses: allyData.max_uses,
+                used: allyData.used
+            }));
+            
+            console.log('DEBUG fireAlly: Updated gameState.player.allies:', gameState.player.allies);
+            
+            // Update allies list display
+            updateAlliesList();
+            
+            // Close the detail overlay
+            if (elements.allyEncounterDisplay) {
+                elements.allyEncounterDisplay.classList.add('hidden');
+            }
+            
+            // Close and reopen modal to refresh if there are still allies
+            elements.allyModal.classList.remove('active');
+            if (gameState.player.allies.length > 0) {
+                setTimeout(() => showAllyModal(), 100);
+            }
+        } else {
+            console.log('DEBUG fireAlly: Server returned error:', data.message);
+            addLogEntry(`Error: ${data.message}`, 'danger');
+        }
+    } catch (error) {
+        console.error('DEBUG fireAlly: Exception caught:', error);
+        addLogEntry('Failed to fire ally: ' + (error.message || 'Unknown error'), 'danger');
+    }
+}
+
 // Show ally sprite in combat area with animation
 function showCombatAllySprite(ally) {
     if (!ally || !elements.allySpriteContainer || !elements.allySprite) return;
@@ -1073,6 +1237,7 @@ function updateRoomDisplay() {
         elements.roomName.textContent = gameState.currentRoom.name || 'Unknown Room';
     }
     if (elements.roomDescription) {
+        // Just display the description as-is (ally hint is now added server-side on floor generation)
         elements.roomDescription.textContent = gameState.currentRoom.description || 'A mysterious room...';
     }
     
@@ -1083,7 +1248,7 @@ function updateRoomDisplay() {
         if (gameState.currentRoom.has_staircase) {
             const badge = document.createElement('span');
             badge.className = 'feature-badge';
-            badge.textContent = '🔼 Staircase Available';
+            badge.textContent = '� Staircase Available';
             elements.roomFeatures.appendChild(badge);
         }
         
@@ -1217,19 +1382,32 @@ async function movePlayer(direction) {
     // Handle ally encounter
     if (result.data.ally_encountered && result.data.ally_result) {
         const ally = result.data.ally_result;
-        addLogEntry(`🤝 ${ally.message}`, 'success');
         
         // Initialize allies array if needed
         if (!gameState.player.allies) {
             gameState.player.allies = [];
         }
         
-        // Add the ally to the player's allies array
-        if (ally.ally) {
-            gameState.player.allies.push(ally.ally);
+        // Check if recruitment was successful
+        if (ally.ally_recruited === false) {
+            // Failed to recruit (at capacity or duplicate)
+            if (ally.at_capacity) {
+                addLogEntry(`🤝 ${ally.message} Your party is full (4/4 allies).`, 'warning');
+                addLogEntry(`💡 Open the Allies menu during combat to fire an ally and make room.`, 'info');
+            } else {
+                addLogEntry(`🤝 ${ally.message}`, 'warning');
+            }
+        } else {
+            // Successfully recruited
+            addLogEntry(`🤝 ${ally.message}`, 'success');
             
-            // Show ally encounter display with sprite
-            showAllyEncounter(ally.ally);
+            // Add the ally to the player's allies array
+            if (ally.ally) {
+                gameState.player.allies.push(ally.ally);
+                
+                // Show ally encounter display with sprite
+                showAllyEncounter(ally.ally);
+            }
         }
         
         updatePlayerDisplay();
@@ -1316,6 +1494,7 @@ function showCombatArea() {
         
         elements.enemyAttack.textContent = gameState.currentEnemy.attack_power || 0;
         elements.enemyDefense.textContent = gameState.currentEnemy.defense || 0;
+        elements.enemySpeed.textContent = gameState.currentEnemy.speed || 10;
     }
     
     // Show/hide ally button based on allies array AND if ally hasn't been used this battle
@@ -1344,6 +1523,19 @@ function hideCombatArea() {
     gameState.currentAlly = null;
     gameState.enemySprite = null;
     gameState.enemySprite = null; // Clear the cached sprite for this battle
+    
+    // Clean up allies with 0 uses remaining
+    if (gameState.player && gameState.player.allies) {
+        const removedAllies = gameState.player.allies.filter(ally => ally.uses_remaining === 0);
+        gameState.player.allies = gameState.player.allies.filter(ally => ally.uses_remaining > 0);
+        
+        if (removedAllies.length > 0) {
+            removedAllies.forEach(ally => {
+                addLogEntry(`${ally.name} has left the party (no uses remaining).`, 'info');
+            });
+        }
+    }
+    
     updateMovementButtons();
 }
 

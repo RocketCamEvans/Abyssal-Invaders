@@ -148,6 +148,19 @@ class MovementController:
         # Get the starting room for new floor (should exist now)
         start_room = self.get_room("start", player.floor)
         
+        # Build entrance message with floor features
+        entrance_messages = [f"You ascend to floor {player.floor}!"]
+        
+        # Check for shop hint in description
+        if "shopping music" in start_room.description.lower():
+            entrance_messages.append("🛒 You hear curated shopping music - there's a merchant on this floor!")
+        
+        # Check for ally hint in description
+        if "voice behind the walls" in start_room.description.lower():
+            entrance_messages.append("👤 You hear someone's voice behind the walls - an ally is trapped here!")
+        
+        message = " ".join(entrance_messages)
+        
         response_data = {
             "moved_from_floor": old_floor,
             "moved_to_floor": player.floor,
@@ -166,7 +179,7 @@ class MovementController:
             }
         }
         
-        return True, create_success_response(response_data, f"You ascend to floor {player.floor}!")
+        return True, create_success_response(response_data, message)
     
     def get_room(self, room_id: str, floor: int) -> Optional[Room]:
         """
@@ -426,6 +439,11 @@ class MovementController:
         # If shop was generated, update start room description to hint at it
         if shop_generated:
             start_room.description += " You hear faint curated shopping music in the distance."
+        
+        # Check if any room on this floor has an ally and add hint
+        ally_present = any(room.has_ally() for room in rooms.values())
+        if ally_present:
+            start_room.description += " You hear someone's voice behind the walls..."
         
         print(f"DEBUG: Floor {floor} generated with {len(rooms)} rooms: {list(rooms.keys())}")
         
