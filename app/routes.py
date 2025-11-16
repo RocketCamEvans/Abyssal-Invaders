@@ -334,6 +334,12 @@ def move_player():
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
             
+            # Check if enemy should have ailment ability
+            from app.models import should_enemy_have_ailment
+            has_ailment, ailment_type = should_enemy_have_ailment(enemy.name, enemy.description)
+            if has_ailment:
+                enemy.set_ailment_ability(ailment_type, player.floor)
+            
             # Start turn-based battle (no ally passed - player chooses when to use)
             combat_result = controllers['combat'].start_battle(player, enemy, new_room, None)
             encounter_occurred = True

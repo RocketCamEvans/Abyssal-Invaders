@@ -43,6 +43,9 @@ class Player:
         self.room_positions = {}  # Track room positions: { roomId: {x, y} }
         self.room_info = {}  # Track room features: { roomId: {hasStairs, isShop} }
         
+        # Ailments
+        self.ailments = []  # List of active ailments
+        
     def take_damage(self, damage: int) -> bool:
         """
         Apply damage to the player.
@@ -251,6 +254,9 @@ class Player:
         
         # Remove allies with no uses remaining
         self.allies = [ally for ally in self.allies if ally.uses_remaining > 0]
+        
+        # Clear ailments at end of battle
+        self.clear_ailments()
     
     def flee_battle(self) -> int:
         """
@@ -336,6 +342,68 @@ class Player:
             'progress_percentage': round((progress / needed) * 100, 1) if needed > 0 else 100
         }
     
+    def add_ailment(self, ailment):
+        """
+        Add an ailment to the player.
+        
+        Args:
+            ailment: Ailment object to add
+        """
+        # Check if player already has this type of ailment
+        for existing in self.ailments:
+            if existing.ailment_type == ailment.ailment_type:
+                # Replace with new one if severity is higher
+                if ailment.severity > existing.severity:
+                    self.ailments.remove(existing)
+                    self.ailments.append(ailment)
+                return
+        
+        # Add new ailment
+        self.ailments.append(ailment)
+    
+    def remove_ailment(self, ailment_type: str):
+        """
+        Remove an ailment by type.
+        
+        Args:
+            ailment_type (str): Type of ailment to remove
+        """
+        self.ailments = [a for a in self.ailments if a.ailment_type != ailment_type]
+    
+    def clear_ailments(self):
+        """Clear all ailments."""
+        self.ailments = []
+    
+    def tick_ailments(self) -> list:
+        """
+        Update ailments, removing expired ones.
+        
+        Returns:
+            list: List of ailments that expired this turn
+        """
+        expired = []
+        still_active = []
+        
+        for ailment in self.ailments:
+            if not ailment.tick_duration():
+                expired.append(ailment)
+            else:
+                still_active.append(ailment)
+        
+        self.ailments = still_active
+        return expired
+    
+    def get_ailment_display(self) -> str:
+        """
+        Get emoji display string for active ailments.
+        
+        Returns:
+            str: Emoji string for ailments
+        """
+        if not self.ailments:
+            return ""
+        return " ".join([a.get_emoji() for a in self.ailments])
+    
     def to_dict(self) -> dict:
         """
         Convert player to dictionary for JSON serialization.
@@ -367,7 +435,8 @@ class Player:
             "temp_attack_boost": self.temp_attack_boost,
             "temp_defense_boost": self.temp_defense_boost,
             "room_positions": self.room_positions,
-            "room_info": self.room_info
+            "room_info": self.room_info,
+            "ailments": [ailment.to_dict() for ailment in self.ailments]
         }
     
     @classmethod
@@ -413,5 +482,9 @@ class Player:
         # Minimap data (with defaults for backward compatibility)
         player.room_positions = data.get("room_positions", {})
         player.room_info = data.get("room_info", {})
+        
+        # Ailments (with defaults for backward compatibility)
+        from .ailment import Ailment
+        player.ailments = [Ailment.from_dict(ailment_data) for ailment_data in data.get("ailments", [])]
         
         return player

@@ -201,6 +201,26 @@ class CombatController:
                     "target": enemy.name,
                     "description": f"{result['description']} {result['message']}"
                 })
+            elif result['type'] == 'caster_poison' or result['type'] == 'caster_paralysis':
+                # Inflict ailment on enemy
+                from ..models.ailment import Ailment, calculate_ailment_duration
+                
+                ailment_type = 'poison' if result['type'] == 'caster_poison' else 'paralysis'
+                severity = result['value']  # Ally's value is the severity
+                duration = calculate_ailment_duration(severity)
+                
+                ailment = Ailment(ailment_type, severity, duration)
+                enemy.add_ailment(ailment)
+                
+                ailment_emoji = ailment.get_emoji()
+                battle_log.append({
+                    "type": "ally_caster",
+                    "ally": ally.name,
+                    "target": enemy.name,
+                    "ailment": ailment_type,
+                    "severity": severity,
+                    "description": f"{result['description']} {enemy.name} is afflicted with {ailment.get_name()} {ailment_emoji} (Severity {severity})! {result['message']}"
+                })
             
             # Mark ally as used this battle (but don't remove from player's list - allies are permanent!)
             player.ally_used = True
@@ -211,11 +231,60 @@ class CombatController:
             print(f"DEBUG COMBAT: After using ally, player still has {len(player.allies)} allies")
             
         else:
-            # Determine turn order based on speed
-            player_goes_first = player.speed >= enemy.speed
+            # Determine turn order and double attack based on speed
+            # Apply shackled reduction to speed
+            player_speed = self._get_effective_stat(player, 'speed', player.speed)
+            enemy_speed = self._get_effective_stat(enemy, 'speed', enemy.speed)
             
-            if player_goes_first:
-                # Player attacks first
+            # Check for 3x speed advantage (double attack)
+            player_double_attack = player_speed >= enemy_speed * 3
+            enemy_double_attack = enemy_speed >= player_speed * 3
+            
+            player_goes_first = player_speed >= enemy_speed
+            
+            print(f"DEBUG COMBAT: Player speed={player_speed}, Enemy speed={enemy_speed}")
+            print(f"DEBUG COMBAT: Player double attack={player_double_attack}, Enemy double attack={enemy_double_attack}")
+            
+            if player_double_attack:
+                # Player is 3x faster - attacks twice before enemy can respond
+                battle_log.append({
+                    "type": "speed_advantage",
+                    "description": f"⚡ Your incredible speed allows you to strike twice before {enemy.name} can react!"
+                })
+                
+                # First player attack
+                damage1 = self._execute_player_attack(player, enemy, battle_log)
+                
+                # Check if enemy is still alive for second attack
+                if enemy.is_alive():
+                    # Second player attack
+                    damage2 = self._execute_player_attack(player, enemy, battle_log)
+                    
+                    # Enemy gets one attack if still alive
+                    if enemy.is_alive():
+                        self._execute_enemy_attack(player, enemy, battle_log)
+                        
+            elif enemy_double_attack:
+                # Enemy is 3x faster - attacks twice before player can respond
+                battle_log.append({
+                    "type": "speed_advantage",
+                    "description": f"⚡ {enemy.name}'s blinding speed allows it to strike twice before you can react!"
+                })
+                
+                # First enemy attack
+                self._execute_enemy_attack(player, enemy, battle_log)
+                
+                # Check if player is still alive for second attack
+                if player.is_alive():
+                    # Second enemy attack
+                    self._execute_enemy_attack(player, enemy, battle_log)
+                    
+                    # Player gets one attack if still alive
+                    if player.is_alive():
+                        damage = self._execute_player_attack(player, enemy, battle_log)
+                        
+            elif player_goes_first:
+                # Normal speed - player attacks first
                 damage = self._execute_player_attack(player, enemy, battle_log)
                 
                 # Check if enemy is defeated
@@ -223,7 +292,7 @@ class CombatController:
                     # Enemy attacks second (if still alive)
                     self._execute_enemy_attack(player, enemy, battle_log)
             else:
-                # Enemy attacks first
+                # Normal speed - enemy attacks first
                 self._execute_enemy_attack(player, enemy, battle_log)
                 
                 # Check if player is still alive for their attack
@@ -258,7 +327,8 @@ class CombatController:
                     "in_battle": player.in_battle,
                     "is_alive": player.is_alive(),
                     "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                    "ally_used": player.ally_used
+                    "ally_used": player.ally_used,
+                    "ailments": [ailment.to_dict() for ailment in player.ailments]
                 },
                 "enemy": enemy.to_dict()
             }
@@ -278,6 +348,8 @@ class CombatController:
         
         # Check if player is defeated after all attacks
         if not player.is_alive():
+            # Get proper defeat result with custom death message
+            defeat_result = self._handle_player_defeat(player, enemy)
             player.end_battle()
             
             return create_success_response({
@@ -291,10 +363,12 @@ class CombatController:
                     "in_battle": player.in_battle,
                     "is_alive": player.is_alive(),
                     "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                    "ally_used": player.ally_used
+                    "ally_used": player.ally_used,
+                    "ailments": [ailment.to_dict() for ailment in player.ailments]
                 },
-                "enemy": enemy.to_dict()
-            }, "Player defeated!")
+                "enemy": enemy.to_dict(),
+                "defeat_result": defeat_result
+            }, defeat_result.get('message', 'Player defeated!'))
         
         return create_success_response({
             "messages": battle_log,
@@ -306,7 +380,8 @@ class CombatController:
                 "in_battle": player.in_battle,
                 "is_alive": player.is_alive(),
                 "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                "ally_used": player.ally_used
+                "ally_used": player.ally_used,
+                "ailments": [ailment.to_dict() for ailment in player.ailments]
             },
             "enemy": enemy.to_dict(),
             "ally_available": player.current_ally and not player.ally_used
@@ -501,6 +576,156 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         
         return damage_dealt
     
+    def _process_ailments_start_of_turn(self, entity, entity_name: str, battle_log: list):
+        """
+        Process ailments at the start of an entity's turn.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return
+        
+        # Process each active ailment
+        for ailment in entity.ailments:
+            # Apply poison damage
+            if ailment.ailment_type == 'poison':
+                damage = ailment.apply_poison_damage(entity.max_health)
+                entity.health = max(0, entity.health - damage)
+                
+                battle_log.append({
+                    "type": "ailment_damage",
+                    "target": entity_name,
+                    "ailment": "poison",
+                    "damage": damage,
+                    "description": f"{ailment.get_emoji()} {entity_name} takes {damage} poison damage! (Turns left: {ailment.turns_remaining})"
+                })
+    
+    def _check_paralysis(self, entity, entity_name: str, battle_log: list) -> bool:
+        """
+        Check if entity is paralyzed and should skip turn.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            bool: True if entity should skip turn
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return False
+        
+        for ailment in entity.ailments:
+            if ailment.ailment_type == 'paralysis':
+                if ailment.check_paralysis():
+                    battle_log.append({
+                        "type": "ailment_skip",
+                        "target": entity_name,
+                        "ailment": "paralysis",
+                        "description": f"{ailment.get_emoji()} {entity_name} is paralyzed and cannot move!"
+                    })
+                    return True
+        
+        return False
+    
+    def _check_blindness(self, entity, entity_name: str, battle_log: list) -> bool:
+        """
+        Check if entity is blinded and misses their attack.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            bool: True if attack should miss
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return False
+        
+        for ailment in entity.ailments:
+            if ailment.ailment_type == 'blinded':
+                if ailment.check_blind_miss():
+                    battle_log.append({
+                        "type": "ailment_miss",
+                        "target": entity_name,
+                        "ailment": "blinded",
+                        "description": f"{ailment.get_emoji()} {entity_name} is blinded and misses their attack!"
+                    })
+                    return True
+        
+        return False
+    
+    def _get_effective_stat(self, entity, stat_name: str, base_value: int) -> int:
+        """
+        Get the effective stat value after applying ailment reductions.
+        
+        Args:
+            entity: Player or Enemy object
+            stat_name (str): Stat type ('attack_power', 'defense', 'speed')
+            base_value (int): Base stat value
+            
+        Returns:
+            int: Effective stat value after reductions
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return base_value
+        
+        multiplier = 1.0
+        
+        for ailment in entity.ailments:
+            if stat_name == 'attack_power' and ailment.ailment_type == 'weakened':
+                multiplier *= ailment.get_stat_reduction_percentage('weakened')
+            elif stat_name == 'defense' and ailment.ailment_type == 'irradiated':
+                multiplier *= ailment.get_stat_reduction_percentage('irradiated')
+            elif stat_name == 'speed' and ailment.ailment_type == 'shackled':
+                multiplier *= ailment.get_stat_reduction_percentage('shackled')
+        
+        return int(base_value * multiplier)
+    
+    def _can_use_allies(self, player) -> bool:
+        """
+        Check if player can use allies (not infatuated).
+        
+        Args:
+            player: Player object
+            
+        Returns:
+            bool: True if player can use allies
+        """
+        if not hasattr(player, 'ailments') or not player.ailments:
+            return True
+        
+        for ailment in player.ailments:
+            if ailment.prevents_ally_use():
+                return False
+        
+        return True
+    
+    def _tick_ailments_end_of_turn(self, entity, entity_name: str, battle_log: list):
+        """
+        Tick down ailments at end of turn and remove expired ones.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+        """
+        if not hasattr(entity, 'ailments'):
+            return
+        
+        expired = entity.tick_ailments()
+        for ailment in expired:
+            battle_log.append({
+                "type": "ailment_expired",
+                "target": entity_name,
+                "ailment": ailment.ailment_type,
+                "description": f"{entity_name}'s {ailment.get_name()} has worn off."
+            })
+    
     def _execute_player_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
         Execute regular player attack.
@@ -513,9 +738,31 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         Returns:
             int: Damage dealt
         """
+        # Process player ailments at start of turn
+        self._process_ailments_start_of_turn(player, player.name, battle_log)
+        
+        # Check if player dies from poison
+        if not player.is_alive():
+            return 0
+        
+        # Check if player is paralyzed
+        if self._check_paralysis(player, player.name, battle_log):
+            # Tick ailments even if paralyzed
+            self._tick_ailments_end_of_turn(player, player.name, battle_log)
+            return 0
+        
+        # Check if player is blinded and misses
+        if self._check_blindness(player, player.name, battle_log):
+            # Tick ailments even if missed
+            self._tick_ailments_end_of_turn(player, player.name, battle_log)
+            return 0
+        
         # Check for critical hit
         is_critical = self._check_critical_hit()
-        base_damage = player.attack_power
+        
+        # Get effective attack power (after weakened reduction)
+        effective_attack = self._get_effective_stat(player, 'attack_power', player.attack_power)
+        base_damage = effective_attack
         
         if is_critical:
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
@@ -540,6 +787,9 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             "description": description
         })
         
+        # Tick ailments at end of turn
+        self._tick_ailments_end_of_turn(player, player.name, battle_log)
+        
         return damage
     
     def _execute_enemy_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
@@ -554,7 +804,20 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         Returns:
             int: Damage dealt
         """
-        # Check if enemy should skip this turn
+        # Process enemy ailments at start of turn
+        self._process_ailments_start_of_turn(enemy, enemy.name, battle_log)
+        
+        # Check if enemy dies from poison
+        if not enemy.is_alive():
+            return 0
+        
+        # Check if enemy is paralyzed
+        if self._check_paralysis(enemy, enemy.name, battle_log):
+            # Tick ailments even if paralyzed
+            self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
+            return 0
+        
+        # Check if enemy should skip this turn (from skipper ally)
         if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn:
             if isinstance(enemy.skip_next_turn, int):
                 # Decrement the counter
@@ -570,9 +833,18 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             })
             return 0
         
+        # Check if enemy is blinded and misses
+        if self._check_blindness(enemy, enemy.name, battle_log):
+            # Tick ailments even if missed
+            self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
+            return 0
+        
         # Check for critical hit
         is_critical = self._check_critical_hit()
-        base_damage = enemy.attack_power
+        
+        # Get effective attack power (after weakened reduction)
+        effective_attack = self._get_effective_stat(enemy, 'attack_power', enemy.attack_power)
+        base_damage = effective_attack
         
         if is_critical:
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
@@ -596,6 +868,54 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             "is_critical": is_critical,
             "description": description
         })
+        
+        # Try to inflict ailments if enemy has that ability
+        # Support both old single type and new multiple types for backward compatibility
+        ailment_types_to_try = []
+        if hasattr(enemy, 'ailment_inflict_types') and enemy.ailment_inflict_types:
+            ailment_types_to_try = enemy.ailment_inflict_types
+        elif hasattr(enemy, 'ailment_inflict_type') and enemy.ailment_inflict_type:
+            # Backward compatibility
+            ailment_types_to_try = [enemy.ailment_inflict_type]
+        
+        if ailment_types_to_try and hasattr(enemy, 'ailment_inflict_chance') and enemy.ailment_inflict_chance > 0:
+            import random
+            from ..models.ailment import Ailment, calculate_ailment_severity, calculate_ailment_duration
+            
+            # ailment_inflict_chance is stored as a decimal (0.0 to 1.0)
+            # Convert to percentage for random check
+            chance_percentage = enemy.ailment_inflict_chance * 100
+            
+            for ailment_type in ailment_types_to_try:
+                print(f"DEBUG: Enemy {enemy.name} trying to inflict {ailment_type} - chance={enemy.ailment_inflict_chance} ({chance_percentage}%)")
+                
+                if random.randint(1, 100) <= chance_percentage:
+                    # Use custom severity if set, otherwise calculate based on floor
+                    if hasattr(enemy, 'ailment_inflict_severity') and enemy.ailment_inflict_severity is not None:
+                        severity = max(0, min(5, enemy.ailment_inflict_severity))  # Clamp to 0-5
+                    else:
+                        severity = calculate_ailment_severity(enemy.floor)
+                    
+                    duration = calculate_ailment_duration(severity)
+                    ailment = Ailment(ailment_type, severity, duration)
+                    player.add_ailment(ailment)
+                    
+                    print(f"DEBUG: ✅ Enemy {enemy.name} successfully inflicted {ailment_type} on player! (Severity {severity})")
+                    
+                    battle_log.append({
+                        "type": "enemy_ailment_inflict",
+                        "attacker": enemy.name,
+                        "target": player.name,
+                        "ailment": ailment_type,
+                        "severity": severity,
+                        "description": f"{ailment.get_emoji()} {enemy.name} inflicts {ailment.get_name()} on {player.name}! (Severity {severity})"
+                    })
+                else:
+                    print(f"DEBUG: ❌ Enemy {enemy.name} failed to inflict {ailment_type}")
+        
+        
+        # Tick ailments at end of turn
+        self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
         
         return damage
     
@@ -708,6 +1028,10 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         Returns:
             Tuple[bool, Dict[str, Any]]: (Success, Result information)
         """
+        # Check if player is infatuated and cannot use allies
+        if not self._can_use_allies(player):
+            return False, create_error_response("💖 You are infatuated and cannot use allies!")
+        
         if ally_index < 0 or ally_index >= len(player.allies):
             return False, create_error_response("Invalid ally selection.")
         
@@ -751,19 +1075,19 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         gold_lost = min(player.gold // 4, 50)  # Lose 25% of gold, max 50
         player.gold = max(0, player.gold - gold_lost)
         
-        # Reset player health to 1 (don't permanently kill them)
-        player.health = 1
+        # Mark player as dead (health = 0) for game over screen
+        player.health = 0
         
         # Generate custom death message using LLM
-        death_message = f"You have been defeated by {enemy.name}! You lost {gold_lost} gold but managed to escape with your life."
+        death_message = f"You have been defeated by {enemy.name}! You lost {gold_lost} gold."
         
         if self.openai_client:
             try:
-                prompt = f"""Player defeated in cursed office dungeon!
+                prompt = f"""Player defeated and killed in cursed office dungeon!
 
 Defeated by: {enemy.name} - {enemy.description}
 
-Write a dramatic defeat message (1-2 sentences). Make it tense but not hopeless - they lost {gold_lost} gold but barely survived with 1 HP. Fit the office-fantasy setting."""
+Write a dramatic death message (1-2 sentences). The player was KILLED and DIED - they lost {gold_lost} gold. Make it dark and final. Fit the office-fantasy setting. DO NOT mention surviving or escaping."""
                 
                 custom_message = self.openai_client.generate_completion(
                     prompt, 

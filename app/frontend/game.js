@@ -17,6 +17,9 @@ const gameState = {
     playerSprite: null // Cache the player's sprite
 };
 
+// Make gameState globally accessible for dev tools
+window.gameState = gameState;
+
 // API Base URL
 const API_BASE = '/api';
 
@@ -27,8 +30,19 @@ let elements = {};
 document.addEventListener('DOMContentLoaded', () => {
     initializeElements();
     attachEventListeners();
-    showScreen('start-screen');
-    loadLeaderboard();
+    
+    // Check for auto-resume from dev tools
+    const autoResumeSession = localStorage.getItem('dev_auto_resume');
+    if (autoResumeSession) {
+        console.log('Auto-resuming session from dev tools:', autoResumeSession);
+        localStorage.removeItem('dev_auto_resume'); // Clear after use
+        
+        // Auto-load the session
+        continueGameWithSession(autoResumeSession);
+    } else {
+        showScreen('start-screen');
+        loadLeaderboard();
+    }
 });
 
 // Initialize DOM element references
@@ -109,6 +123,7 @@ function initializeElements() {
         leaderboardList: document.getElementById('leaderboard-list'),
         
         // Game over
+        deathMessage: document.getElementById('death-message'),
         finalGold: document.getElementById('final-gold'),
         finalLevel: document.getElementById('final-level'),
         finalFloor: document.getElementById('final-floor'),
@@ -172,10 +187,25 @@ const ATTACK_ANIMATIONS = [
     'attack-pulse'
 ];
 
+// Player attack animations (mirrored for facing right)
+const PLAYER_ATTACK_ANIMATIONS = [
+    'player-attack-slash',
+    'player-attack-magic',
+    'player-attack-lunge',
+    'player-attack-spin',
+    'player-attack-pulse'
+];
+
 // Select random attack animation
 function selectRandomAttackAnimation() {
     const randomIndex = Math.floor(Math.random() * ATTACK_ANIMATIONS.length);
     return ATTACK_ANIMATIONS[randomIndex];
+}
+
+// Select random player attack animation
+function selectRandomPlayerAttackAnimation() {
+    const randomIndex = Math.floor(Math.random() * PLAYER_ATTACK_ANIMATIONS.length);
+    return PLAYER_ATTACK_ANIMATIONS[randomIndex];
 }
 
 // Remove all attack animation classes
@@ -186,7 +216,11 @@ function removeAttackAnimations() {
         });
     }
     if (elements.playerSprite) {
+        // Remove both regular and player-specific animation classes
         ATTACK_ANIMATIONS.forEach(className => {
+            elements.playerSprite.classList.remove(className);
+        });
+        PLAYER_ATTACK_ANIMATIONS.forEach(className => {
             elements.playerSprite.classList.remove(className);
         });
     }
@@ -535,6 +569,10 @@ async function continueGame() {
         return;
     }
     
+    await continueGameWithSession(sessionId);
+}
+
+async function continueGameWithSession(sessionId) {
     // Prevent multiple simultaneous requests
     if (!showLoading('Loading game...')) {
         return;
@@ -636,6 +674,87 @@ async function continueGame() {
     }
 }
 
+/**
+ * Refresh all game displays - called by dev tools after making changes
+ */
+async function refreshGameDisplay() {
+    console.log('refreshGameDisplay called!');
+    
+    if (!gameState.sessionId) {
+        console.log('No session to refresh');
+        return;
+    }
+    
+    console.log('Reloading player data for session:', gameState.sessionId);
+    
+    try {
+        // Reload player data from server
+        const result = await apiRequest('/player/load', 'POST', { session_id: gameState.sessionId });
+        
+        console.log('Player reload result:', result);
+        
+        if (!result.success) {
+            console.error('Failed to reload player data:', result.message);
+            return;
+        }
+        
+        // Update game state
+        gameState.player = result.data.player;
+        gameState.currentRoom = result.data.current_room;
+        
+        console.log('Updated player:', gameState.player);
+        console.log('Updated room:', gameState.currentRoom);
+        
+        // Update battle state
+        if (result.data.player.in_battle && result.data.player.current_enemy) {
+            gameState.inCombat = true;
+            gameState.currentEnemy = result.data.player.current_enemy;
+        } else {
+            gameState.inCombat = false;
+            gameState.currentEnemy = null;
+        }
+        
+        // Initialize arrays if not present
+        if (!gameState.player.allies) gameState.player.allies = [];
+        if (!gameState.player.inventory) gameState.player.inventory = [];
+        if (!gameState.player.visited_rooms) gameState.player.visited_rooms = [];
+        
+        // Update minimap data
+        if (result.data.player.room_positions) {
+            gameState.roomPositions = result.data.player.room_positions;
+        }
+        if (result.data.player.room_info) {
+            gameState.roomInfo = result.data.player.room_info;
+        }
+        
+        console.log('Updating displays...');
+        
+        // Refresh all displays
+        updatePlayerDisplay();
+        console.log('Player display updated');
+        
+        updateRoomDisplay();
+        console.log('Room display updated');
+        
+        updateMinimap();
+        console.log('Minimap updated');
+        
+        // If in combat, refresh combat display
+        if (gameState.inCombat && gameState.currentEnemy) {
+            await showCombatArea();
+            console.log('Combat display updated');
+        }
+        
+        console.log('✅ Game display refreshed successfully');
+    } catch (error) {
+        console.error('❌ Error refreshing game display:', error);
+    }
+}
+
+// Make refresh function globally accessible for dev tools
+window.refreshGameDisplay = refreshGameDisplay;
+console.log('refreshGameDisplay function registered on window');
+
 // Show session ID
 function showSessionId() {
     if (!gameState.sessionId) {
@@ -718,9 +837,49 @@ function updatePlayerDisplay() {
     
     elements.playerFloor.textContent = gameState.player.floor;
     elements.playerAllies.textContent = gameState.player.allies ? gameState.player.allies.length : 0;
-    elements.playerAttack.textContent = gameState.player.attack_power || 10;
-    elements.playerDefense.textContent = gameState.player.defense || 5;
-    elements.playerSpeed.textContent = gameState.player.speed || 10;
+    
+    // Update player ailments display
+    const playerAilmentsEl = document.getElementById('player-ailments');
+    if (playerAilmentsEl) {
+        if (gameState.player.ailments && gameState.player.ailments.length > 0) {
+            // Display ailments with severity as superscript
+            const ailmentDisplay = gameState.player.ailments.map(a => {
+                const emoji = a.emoji || '';
+                const severity = a.severity !== undefined ? a.severity : '?';
+                return `${emoji}${severity}`;
+            }).join(' ');
+            playerAilmentsEl.textContent = ailmentDisplay;
+            
+            // Create tooltip with full ailment details
+            const tooltipText = gameState.player.ailments.map(a => 
+                `${a.name || a.type} (Severity ${a.severity}, ${a.turns_remaining}/${a.duration} turns)`
+            ).join(', ');
+            playerAilmentsEl.title = tooltipText;
+            
+            console.log('Player ailments displayed:', ailmentDisplay, tooltipText);
+        } else {
+            playerAilmentsEl.textContent = '';
+            playerAilmentsEl.title = '';
+        }
+    }
+    
+    // Update stats with ailment indicators
+    const getStatAilmentIndicator = (ailmentType) => {
+        if (!gameState.player.ailments) return '';
+        for (const ailment of gameState.player.ailments) {
+            if (ailment.type === ailmentType) {
+                const statEmoji = ailment.type === 'weakened' ? '💔' : 
+                                 ailment.type === 'irradiated' ? '☢️' : 
+                                 ailment.type === 'shackled' ? '⛓️' : '';
+                return statEmoji ? ` ${statEmoji}` : '';
+            }
+        }
+        return '';
+    };
+    
+    elements.playerAttack.textContent = (gameState.player.attack_power || 10) + getStatAilmentIndicator('weakened');
+    elements.playerDefense.textContent = (gameState.player.defense || 5) + getStatAilmentIndicator('irradiated');
+    elements.playerSpeed.textContent = (gameState.player.speed || 10) + getStatAilmentIndicator('shackled');
     
     // Update allies list
     updateAlliesList();
@@ -757,7 +916,9 @@ function updateAlliesList() {
         const typeEmoji = {
             'healer': '💚',
             'attacker': '⚔️',
-            'skipper': '⏸️'
+            'skipper': '⏸️',
+            'caster_poison': '🧪',
+            'caster_paralysis': '⚡'
         };
         
         const usesText = ally.uses_remaining !== undefined 
@@ -766,6 +927,8 @@ function updateAlliesList() {
         
         const typeValue = ally.type === 'skipper' ? 'Skip Turn' : 
                          ally.type === 'healer' ? `+${ally.value} HP` :
+                         ally.type === 'caster_poison' ? `🧪 Poison (Sev ${ally.value})` :
+                         ally.type === 'caster_paralysis' ? `⚡ Paralyze (Sev ${ally.value})` :
                          `${ally.value} DMG`;
         
         return `
@@ -800,13 +963,17 @@ function showAllyDetails(allyIndex) {
     const typeEmoji = {
         'healer': '💚',
         'attacker': '⚔️',
-        'skipper': '⏸️'
+        'skipper': '⏸️',
+        'caster_poison': '🧪',
+        'caster_paralysis': '⚡'
     };
     
     const typeDescription = {
         'healer': `Heals ${ally.value} HP`,
         'attacker': `Deals ${ally.value} damage`,
-        'skipper': 'Skips enemy turn for 2 rounds'
+        'skipper': 'Skips enemy turn for 2 rounds',
+        'caster_poison': `Inflicts Poison (Severity ${ally.value})`,
+        'caster_paralysis': `Inflicts Paralysis (Severity ${ally.value})`
     };
     
     const usesText = ally.uses_remaining !== undefined 
@@ -879,6 +1046,102 @@ function updateInventoryDisplay() {
             </div>
         `;
     }).join('');
+}
+
+// Update ailment displays for both player and enemy
+function updateAilmentDisplays() {
+    console.log('updateAilmentDisplays called');
+    
+    // Update player ailments
+    const playerAilmentsEl = document.getElementById('player-ailments');
+    if (playerAilmentsEl && gameState.player) {
+        if (gameState.player.ailments && gameState.player.ailments.length > 0) {
+            // Display ailments with severity as superscript
+            const ailmentDisplay = gameState.player.ailments.map(a => {
+                const emoji = a.emoji || '';
+                const severity = a.severity !== undefined ? a.severity : '?';
+                return `${emoji}${severity}`;
+            }).join(' ');
+            playerAilmentsEl.textContent = ailmentDisplay;
+            
+            // Create tooltip with full ailment details
+            const tooltipText = gameState.player.ailments.map(a => 
+                `${a.name || a.type} (Severity ${a.severity}, ${a.turns_remaining}/${a.duration} turns)`
+            ).join(', ');
+            playerAilmentsEl.title = tooltipText;
+            
+            console.log('Player ailments updated:', ailmentDisplay, tooltipText);
+        } else {
+            playerAilmentsEl.textContent = '';
+            playerAilmentsEl.title = '';
+        }
+    }
+    
+    // Update enemy ailments
+    const enemyAilmentsEl = document.getElementById('enemy-ailments');
+    if (enemyAilmentsEl && gameState.currentEnemy) {
+        if (gameState.currentEnemy.ailments && gameState.currentEnemy.ailments.length > 0) {
+            // Display ailments with severity as superscript
+            const ailmentDisplay = gameState.currentEnemy.ailments.map(a => {
+                const emoji = a.emoji || '';
+                const severity = a.severity !== undefined ? a.severity : '?';
+                return `${emoji}${severity}`;
+            }).join(' ');
+            enemyAilmentsEl.textContent = ailmentDisplay;
+            
+            // Create tooltip with full ailment details
+            const tooltipText = gameState.currentEnemy.ailments.map(a => 
+                `${a.name || a.type} (Severity ${a.severity}, ${a.turns_remaining}/${a.duration} turns)`
+            ).join(', ');
+            enemyAilmentsEl.title = tooltipText;
+            
+            console.log('Enemy ailments updated:', ailmentDisplay, tooltipText, gameState.currentEnemy.ailments);
+        } else {
+            enemyAilmentsEl.textContent = '';
+            enemyAilmentsEl.title = '';
+            console.log('Enemy has no ailments or empty array');
+        }
+    }
+    
+    // Update enemy can-inflict indicator
+    const enemyCanInflictEl = document.getElementById('enemy-can-inflict');
+    if (enemyCanInflictEl && gameState.currentEnemy) {
+        // Check for both new multi-type and old single-type format
+        const ailmentTypes = gameState.currentEnemy.ailment_inflict_types || 
+                           (gameState.currentEnemy.ailment_inflict_type ? [gameState.currentEnemy.ailment_inflict_type] : []);
+        
+        if (ailmentTypes.length > 0 && gameState.currentEnemy.ailment_inflict_chance > 0) {
+            // Map ailment types to their emojis
+            const ailmentEmojiMap = {
+                'poison': '🧪',
+                'paralysis': '⚡',
+                'weakened': '💔',
+                'irradiated': '☢️',
+                'shackled': '⛓️',
+                'infatuated': '💖',
+                'blinded': '🙈'
+            };
+            
+            // Get emojis for all ailment types
+            const ailmentEmojis = ailmentTypes.map(type => ailmentEmojiMap[type] || '❓').join('');
+            const chance = Math.round(gameState.currentEnemy.ailment_inflict_chance * 100);
+            enemyCanInflictEl.textContent = `${ailmentEmojis} ${chance}%`;
+            enemyCanInflictEl.style.display = 'inline';
+            
+            // Show all types in tooltip
+            const typesList = ailmentTypes.join(', ');
+            let tooltipText = `Can inflict ${typesList} (${chance}% chance each)`;
+            if (gameState.currentEnemy.ailment_inflict_severity !== undefined && gameState.currentEnemy.ailment_inflict_severity !== null) {
+                tooltipText += ` - Severity ${gameState.currentEnemy.ailment_inflict_severity}`;
+            }
+            enemyCanInflictEl.title = tooltipText;
+            
+            console.log('Enemy can inflict:', typesList, chance + '%', 
+                       gameState.currentEnemy.ailment_inflict_severity !== null ? `Severity ${gameState.currentEnemy.ailment_inflict_severity}` : '(floor-based)');
+        } else {
+            enemyCanInflictEl.style.display = 'none';
+        }
+    }
 }
 
 // Show item selection modal
@@ -1474,6 +1737,13 @@ function showCombatArea() {
         elements.enemyName.textContent = gameState.currentEnemy.name || 'Unknown Enemy';
         elements.enemyDescription.textContent = gameState.currentEnemy.description || 'A mysterious creature';
         
+        console.log('showCombatArea: currentEnemy =', gameState.currentEnemy);
+        console.log('showCombatArea: enemy ailments =', gameState.currentEnemy.ailments);
+        console.log('showCombatArea: enemy can inflict =', gameState.currentEnemy.ailment_inflict_types || [gameState.currentEnemy.ailment_inflict_type], gameState.currentEnemy.ailment_inflict_chance);
+        
+        // Update all ailment displays
+        updateAilmentDisplays();
+        
         // Display enemy sprite
         if (gameState.enemySprite) {
             console.log(`✓ Displaying enemy sprite: ${gameState.enemySprite}`);
@@ -1492,13 +1762,31 @@ function showCombatArea() {
         elements.enemyHealthBar.style.width = `${enemyHealthPercent}%`;
         elements.enemyHealthText.textContent = `${currentHealth}/${maxHealth}`;
         
-        elements.enemyAttack.textContent = gameState.currentEnemy.attack_power || 0;
-        elements.enemyDefense.textContent = gameState.currentEnemy.defense || 0;
-        elements.enemySpeed.textContent = gameState.currentEnemy.speed || 10;
+        // Get stat ailment indicators for enemy
+        const getEnemyStatAilmentIndicator = (ailmentType) => {
+            if (!gameState.currentEnemy.ailments) return '';
+            for (const ailment of gameState.currentEnemy.ailments) {
+                if (ailment.type === ailmentType) {
+                    const statEmoji = ailment.type === 'weakened' ? '💔' : 
+                                     ailment.type === 'irradiated' ? '☢️' : 
+                                     ailment.type === 'shackled' ? '⛓️' : '';
+                    return statEmoji ? ` ${statEmoji}` : '';
+                }
+            }
+            return '';
+        };
+        
+        elements.enemyAttack.textContent = (gameState.currentEnemy.attack_power || 0) + getEnemyStatAilmentIndicator('weakened');
+        elements.enemyDefense.textContent = (gameState.currentEnemy.defense || 0) + getEnemyStatAilmentIndicator('irradiated');
+        elements.enemySpeed.textContent = (gameState.currentEnemy.speed || 10) + getEnemyStatAilmentIndicator('shackled');
     }
     
     // Show/hide ally button based on allies array AND if ally hasn't been used this battle
-    if (gameState.player && gameState.player.allies && gameState.player.allies.length > 0 && !gameState.player.ally_used) {
+    // Also check if player is infatuated
+    const isInfatuated = gameState.player && gameState.player.ailments && 
+                        gameState.player.ailments.some(a => a.type === 'infatuated');
+    
+    if (gameState.player && gameState.player.allies && gameState.player.allies.length > 0 && !gameState.player.ally_used && !isInfatuated) {
         elements.useAllyBtn.classList.remove('hidden');
     } else {
         elements.useAllyBtn.classList.add('hidden');
@@ -1557,7 +1845,7 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
     
     // Apply random attack animation to player sprite when attacking
     if (action === 'attack' && gameState.inCombat && elements.playerSprite && elements.playerSprite.src) {
-        const playerAttackAnimation = selectRandomAttackAnimation();
+        const playerAttackAnimation = selectRandomPlayerAttackAnimation();
         console.log(`🎬 Applying player attack animation: ${playerAttackAnimation}`);
         removeAttackAnimations(); // Clear any previous animation
         elements.playerSprite.classList.add(playerAttackAnimation);
@@ -1658,7 +1946,9 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
                 gameState.player.in_battle = combatData.player.in_battle;
                 gameState.player.allies = combatData.player.allies || [];
                 gameState.player.ally_used = combatData.player.ally_used || false;
+                gameState.player.ailments = combatData.player.ailments || [];
                 console.log('DEBUG performCombatAction: Set gameState.player.allies to:', gameState.player.allies);
+                console.log('DEBUG performCombatAction: Set gameState.player.ailments to:', gameState.player.ailments);
                 updatePlayerDisplay();
                 updateAlliesList();
             }
@@ -1667,6 +1957,9 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
             if (combatData.enemy && gameState.inCombat && !combatData.battle_ended && combatData.player?.in_battle) {
                 console.log('DEBUG performCombatAction: Updating enemy state - battle continues');
                 gameState.currentEnemy = combatData.enemy;
+                
+                // Explicitly update ailment displays
+                updateAilmentDisplays();
                 
                 // Animate enemy taking damage
                 const enemyCard = document.querySelector('.enemy-card');
@@ -1713,7 +2006,9 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
             
             // Check if player died
             if (combatData.player && !combatData.player.is_alive) {
-                handlePlayerDeath();
+                // Pass the death message if available
+                const deathMessage = result.message || combatData.message || null;
+                handlePlayerDeath(deathMessage);
             }
         }
     } catch (error) {
@@ -1732,14 +2027,25 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
 }
 
 // Handle player death
-function handlePlayerDeath() {
+function handlePlayerDeath(deathMessage = null) {
     addLogEntry('💀 You have fallen in battle...', 'danger');
+    
+    // Store death message for the game over screen
+    if (deathMessage) {
+        gameState.deathMessage = deathMessage;
+    }
     
     setTimeout(() => {
         elements.finalGold.textContent = gameState.player.gold;
         elements.finalLevel.textContent = gameState.player.level || 1;
         elements.finalFloor.textContent = gameState.player.floor;
         elements.finalAllies.textContent = gameState.player.allies_count || 0;
+        
+        // Display death message if available
+        if (elements.deathMessage) {
+            elements.deathMessage.textContent = gameState.deathMessage || 
+                `You were slain on floor ${gameState.player.floor}...`;
+        }
         
         showScreen('game-over-screen');
     }, 2000);

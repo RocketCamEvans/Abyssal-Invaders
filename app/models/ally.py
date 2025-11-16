@@ -20,7 +20,13 @@ PREDEFINED_ALLIES = [
     # Skippers
     {"name": "Mad Jester Juju", "type": "skipper", "value": 0, "description": "Juju gaslights the enemy into believing they already took their turn!", "sprite": "player_jester_silly_mad_insane_crazy_clown_harlequin.png", "max_uses": 2},
     {"name": "Sebastian", "type": "skipper", "value": 0, "description": "NOBODY does Sebastian. The enemy agrees and decides to give up their turn.", "sprite": "player_casual_office_worker_normal.png", "max_uses": 1},
-    {"name": "Bridge Troll Spencer", "type": "skipper", "value": 0, "description": "Spencer tells the enemy that they will cross that bridge when they get there. The enemy skips their turn.", "sprite": "player_troll_monster_goblin_orc_ogre_green_brute.png", "max_uses": 1}
+    {"name": "Bridge Troll Spencer", "type": "skipper", "value": 0, "description": "Spencer tells the enemy that they will cross that bridge when they get there. The enemy skips their turn.", "sprite": "player_troll_monster_goblin_orc_ogre_green_brute.png", "max_uses": 1},
+    
+    # Casters (ailment inflictors)
+    {"name": "Venomous Vivian", "type": "caster_poison", "value": 3, "description": "Vivian conjures a toxic cloud that poisons the enemy, causing damage over time!", "sprite": "player_witch_poison_green_cauldron_potion.png", "max_uses": 2},
+    {"name": "Thunderstrike Thor", "type": "caster_paralysis", "value": 2, "description": "Thor channels lightning through his hammer, paralyzing the enemy and disrupting their movements!", "sprite": "player_viking_warrior_hammer_lightning_beard.png", "max_uses": 2},
+    {"name": "Plague Doctor Mortimer", "type": "caster_poison", "value": 4, "description": "Mortimer applies his questionable medical expertise, inflicting a severe poison upon the enemy!", "sprite": "player_plague_doctor_bird_mask_black_coat.png", "max_uses": 1},
+    {"name": "Ice Mage Elsa", "type": "caster_paralysis", "value": 3, "description": "Elsa freezes the enemy with icy magic, slowing their movements and causing them to miss turns!", "sprite": "player_ice_mage_blue_staff_cold_frost.png", "max_uses": 2}
 ]
 
 
@@ -32,8 +38,8 @@ class Ally:
     
     def __init__(self, name: str = "", ally_type: str = "attacker", value: int = 0, description: str = "", floor: int = 1, sprite: str = "", max_uses: int = None):
         self.name = name or "Mysterious Helper"
-        self.ally_type = ally_type  # 'healer', 'attacker', or 'skipper'
-        self.value = value  # Healing amount, damage amount, or 0 for skipper
+        self.ally_type = ally_type  # 'healer', 'attacker', 'skipper', 'caster_poison', or 'caster_paralysis'
+        self.value = value  # Healing amount, damage amount, ailment severity, or 0 for skipper
         self.description = description or "A helpful coworker appears to aid you."
         self.floor = floor
         self.used = False

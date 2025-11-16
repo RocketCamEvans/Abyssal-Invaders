@@ -39,6 +39,19 @@ def create_app(config_name: str = 'development') -> Flask:
     from . import routes
     app.register_blueprint(routes.bp)
     
+    # Register dev routes if DEV_MODE_KEY is set
+    dev_key = os.environ.get('DEV_MODE_KEY', '')
+    print(f"DEBUG: DEV_MODE_KEY from environment: '{dev_key}'")
+    if dev_key:
+        try:
+            from . import dev_routes
+            app.register_blueprint(dev_routes.dev_bp)
+            print(f"✓ Developer mode enabled (access with /dev?key={dev_key})")
+        except Exception as e:
+            print(f"✗ Failed to register dev routes: {e}")
+    else:
+        print("ℹ Developer mode disabled (no DEV_MODE_KEY set)")
+    
     # Register frontend routes
     _register_frontend_routes(app)
     

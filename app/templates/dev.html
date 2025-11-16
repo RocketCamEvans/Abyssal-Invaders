@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abyssal Invaders - Developer Tools</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #050810 0%, #0a0e1a 100%);
+            color: #e0e6f0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #4a90e2;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(74, 144, 226, 0.5);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #a8b5cc;
+            margin-bottom: 30px;
+        }
+
+        .warning {
+            background: rgba(231, 76, 60, 0.2);
+            border: 2px solid #e74c3c;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .info-box {
+            background: rgba(74, 144, 226, 0.1);
+            border: 1px solid #4a90e2;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-box h3 {
+            color: #4a90e2;
+            margin-bottom: 10px;
+        }
+        
+        #current-session {
+            font-family: 'Courier New', monospace;
+            color: #2ecc71;
+            font-weight: bold;
+        }
+        
+        #session-status {
+            color: #ffd700;
+            font-weight: bold;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: #141b2d;
+            border: 1px solid #2a3f5f;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
+        }
+
+        .card h2 {
+            color: #4a90e2;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            color: #a8b5cc;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            background: #0a0e1a;
+            border: 1px solid #2a3f5f;
+            border-radius: 4px;
+            color: #e0e6f0;
+            font-size: 0.95rem;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #4a90e2;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #4a90e2;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #357abd;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(74, 144, 226, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #2ecc71;
+        }
+
+        .btn-success:hover {
+            background: #27ae60;
+        }
+
+        #output {
+            background: #0a0e1a;
+            border: 1px solid #2a3f5f;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .log-entry {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            border-left: 3px solid #4a90e2;
+        }
+
+        .log-success {
+            background: rgba(46, 204, 113, 0.1);
+            border-left-color: #2ecc71;
+        }
+
+        .log-error {
+            background: rgba(231, 76, 60, 0.1);
+            border-left-color: #e74c3c;
+        }
+
+        .ally-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .ally-item {
+            padding: 10px;
+            background: #0a0e1a;
+            border: 1px solid #2a3f5f;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .ally-item:hover {
+            border-color: #4a90e2;
+            background: rgba(74, 144, 226, 0.1);
+        }
+
+        .ally-name {
+            font-weight: bold;
+            color: #4a90e2;
+        }
+
+        .ally-type {
+            font-size: 0.85rem;
+            color: #a8b5cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛠️ Abyssal Invaders - Developer Tools</h1>
+        <p class="subtitle">Testing & Debugging Console</p>
+
+        <div class="warning">
+            ⚠️ <strong>WARNING:</strong> This is a developer-only interface. Do not share your dev key publicly.
+        </div>
+
+        <div class="info-box">
+            <h3>📋 Session Information</h3>
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label>Session ID</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="session-id-input" placeholder="Enter session ID or auto-detect from game">
+                    <button onclick="updateSession()" style="width: auto; padding: 8px 20px;">Set Session</button>
+                    <button onclick="reloadGameState()" style="width: auto; padding: 8px 20px;" class="btn-success">Reload Game</button>
+                </div>
+            </div>
+            <p><strong>Current Session:</strong> <span id="current-session">Not loaded</span></p>
+            <p><strong>Status:</strong> <span id="session-status">Ready</span></p>
+        </div>
+
+        <div class="grid">
+            <!-- Spawn Battle Card -->
+            <div class="card">
+                <h2>⚔️ Spawn Battle</h2>
+                <div class="form-group">
+                    <label>Floor Level</label>
+                    <input type="number" id="battle-floor" value="1" min="1" max="100">
+                </div>
+                <div class="form-group">
+                    <label>Enemy Name (optional)</label>
+                    <input type="text" id="battle-enemy-name" placeholder="Leave empty for random">
+                </div>
+                <div class="form-group">
+                    <label>Enemy Description (optional)</label>
+                    <textarea id="battle-enemy-desc" rows="2" placeholder="Leave empty for random"></textarea>
+                </div>
+                <button onclick="spawnBattle()">Spawn Battle</button>
+            </div>
+
+            <!-- Modify Stats Card -->
+            <div class="card">
+                <h2>📊 Modify Player Stats</h2>
+                <div class="form-group">
+                    <label>Health</label>
+                    <input type="number" id="stat-health" placeholder="Current health">
+                </div>
+                <div class="form-group">
+                    <label>Max Health</label>
+                    <input type="number" id="stat-max-health" placeholder="Max health">
+                </div>
+                <div class="form-group">
+                    <label>Gold</label>
+                    <input type="number" id="stat-gold" placeholder="Gold amount">
+                </div>
+                <div class="form-group">
+                    <label>Attack Power</label>
+                    <input type="number" id="stat-attack" placeholder="Attack">
+                </div>
+                <div class="form-group">
+                    <label>Defense</label>
+                    <input type="number" id="stat-defense" placeholder="Defense">
+                </div>
+                <div class="form-group">
+                    <label>Speed</label>
+                    <input type="number" id="stat-speed" placeholder="Speed">
+                </div>
+                <button onclick="modifyStats()">Apply Changes</button>
+            </div>
+
+            <!-- Inflict Ailment Card -->
+            <div class="card">
+                <h2>🧪 Inflict Ailment</h2>
+                <div class="form-group">
+                    <label>Target</label>
+                    <select id="ailment-target">
+                        <option value="enemy">Enemy (in battle)</option>
+                        <option value="player">Player</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Ailment Type</label>
+                    <select id="ailment-type">
+                        <option value="poison">🧪 Poison</option>
+                        <option value="paralysis">⚡ Paralysis</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Severity (0-5)</label>
+                    <input type="number" id="ailment-severity" value="3" min="0" max="5">
+                </div>
+                <button onclick="inflictAilment()">Inflict Ailment</button>
+            </div>
+
+            <!-- Give Ally Card -->
+            <div class="card">
+                <h2>🤝 Give Ally</h2>
+                <div class="form-group">
+                    <label>Ally Name (optional)</label>
+                    <input type="text" id="ally-name" placeholder="Leave empty for random">
+                </div>
+                <button onclick="giveAlly()" class="btn-success">Give Random Ally</button>
+                <button onclick="loadAllies()" style="margin-top: 10px;">Show All Allies</button>
+                <div id="allies-list" style="margin-top: 15px;"></div>
+            </div>
+
+            <!-- Spawn Room Card -->
+            <div class="card">
+                <h2>🏛️ Spawn Room</h2>
+                <div class="form-group">
+                    <label>Room Type</label>
+                    <select id="room-type">
+                        <option value="normal">Normal Room</option>
+                        <option value="shop">Shop Room</option>
+                        <option value="stairs">Stairs Room</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Floor Level</label>
+                    <input type="number" id="room-floor" value="1" min="1" max="100">
+                </div>
+                <button onclick="spawnRoom()">Spawn Room</button>
+            </div>
+
+            <!-- Battle Controls Card -->
+            <div class="card">
+                <h2>🎮 Battle Controls</h2>
+                <button onclick="endBattle()" class="btn-danger">End Current Battle</button>
+            </div>
+
+            <!-- Floor Controls Card -->
+            <div class="card">
+                <h2>🏰 Floor Controls</h2>
+                <div class="form-group">
+                    <label>Target Floor</label>
+                    <input type="number" id="change-floor" value="1" min="1" max="100">
+                </div>
+                <button onclick="changeFloor()">Change Floor</button>
+                <button onclick="getPlayerInfo()" style="margin-top: 10px;" class="btn-success">Show Player Info</button>
+            </div>
+        </div>
+
+        <div id="output"></div>
+    </div>
+
+    <script>
+        const DEV_KEY = new URLSearchParams(window.location.search).get('key');
+        let sessionId = null;
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function makeRequest(endpoint, data = {}) {
+            try {
+                if (!sessionId) {
+                    log('❌ No session ID available', 'error');
+                    return null;
+                }
+
+                data.session_id = sessionId;
+                data.key = DEV_KEY;
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    log(`✓ ${result.message}`, 'success');
+                    
+                    // Reload game if opened from game window
+                    if (window.opener && !window.opener.closed && window.opener.loadGameState) {
+                        try {
+                            window.opener.loadGameState();
+                        } catch (e) {
+                            log('⚠️ Game window not accessible. Changes will apply on next action.', 'warning');
+                        }
+                    } else {
+                        log('⚠️ Game window not accessible. Changes will apply on next action.', 'warning');
+                    }
+                } else {
+                    log(`❌ ${result.message || 'Request failed'}`, 'error');
+                }
+
+                return result;
+            } catch (error) {
+                log(`❌ Request failed: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        async function spawnBattle() {
+            const floor = document.getElementById('battle-floor').value;
+            const enemyName = document.getElementById('battle-enemy-name').value;
+            const enemyDesc = document.getElementById('battle-enemy-desc').value;
+
+            await makeRequest('/dev/spawn-battle', {
+                floor: parseInt(floor),
+                enemy_name: enemyName,
+                enemy_description: enemyDesc
+            });
+        }
+
+        async function modifyStats() {
+            const data = {};
+            
+            const health = document.getElementById('stat-health').value;
+            const maxHealth = document.getElementById('stat-max-health').value;
+            const gold = document.getElementById('stat-gold').value;
+            const attack = document.getElementById('stat-attack').value;
+            const defense = document.getElementById('stat-defense').value;
+            const speed = document.getElementById('stat-speed').value;
+
+            if (health) data.health = parseInt(health);
+            if (maxHealth) data.max_health = parseInt(maxHealth);
+            if (gold) data.gold = parseInt(gold);
+            if (attack) data.attack_power = parseInt(attack);
+            if (defense) data.defense = parseInt(defense);
+            if (speed) data.speed = parseInt(speed);
+
+            if (Object.keys(data).length === 0) {
+                log('⚠️ No stats to modify', 'error');
+                return;
+            }
+
+            await makeRequest('/dev/modify-stats', data);
+        }
+
+        async function inflictAilment() {
+            const target = document.getElementById('ailment-target').value;
+            const type = document.getElementById('ailment-type').value;
+            const severity = document.getElementById('ailment-severity').value;
+
+            await makeRequest('/dev/inflict-ailment', {
+                target: target,
+                ailment_type: type,
+                severity: parseInt(severity)
+            });
+        }
+
+        async function giveAlly() {
+            const allyName = document.getElementById('ally-name').value;
+            await makeRequest('/dev/give-ally', {
+                ally_name: allyName
+            });
+        }
+
+        async function spawnRoom() {
+            const roomType = document.getElementById('room-type').value;
+            const floor = document.getElementById('room-floor').value;
+
+            await makeRequest('/dev/spawn-room', {
+                room_type: roomType,
+                floor: parseInt(floor)
+            });
+        }
+
+        async function endBattle() {
+            await makeRequest('/dev/end-battle', {});
+        }
+
+        async function loadAllies() {
+            const result = await makeRequest('/dev/list-allies', {});
+
+            if (result && result.success) {
+                const listDiv = document.getElementById('allies-list');
+                listDiv.innerHTML = '<div class="ally-list"></div>';
+                const list = listDiv.querySelector('.ally-list');
+
+                const allies = result.data.available_allies || [];
+                const playerAllies = result.data.player_allies || [];
+
+                log(`📊 Player has ${playerAllies.length} allies`, 'info');
+
+                allies.forEach(ally => {
+                    const item = document.createElement('div');
+                    item.className = 'ally-item';
+                    item.innerHTML = `
+                        <div class="ally-name">${ally.name}</div>
+                        <div class="ally-type">${ally.type} (${ally.value})</div>
+                    `;
+                    item.onclick = () => {
+                        document.getElementById('ally-name').value = ally.name;
+                        log(`Selected: ${ally.name}`, 'success');
+                    };
+                    list.appendChild(item);
+                });
+            }
+        }
+
+        // Initialize
+        log('🛠️ Developer tools loaded', 'success');
+        if (!DEV_KEY) {
+            log('⚠️ No dev key in URL. Access denied.', 'error');
+        }
+        
+        // Load session ID on startup
+        loadSessionId();
+        
+        function loadSessionId() {
+            let foundSession = null;
+            
+            // Try to get session from opener (game window)
+            try {
+                if (window.opener && window.opener.gameState && window.opener.gameState.sessionId) {
+                    foundSession = window.opener.gameState.sessionId;
+                    log('✓ Session ID loaded from game window', 'success');
+                }
+            } catch (e) {
+                console.log('Could not access opener window:', e);
+            }
+            
+            // Try localStorage as backup
+            if (!foundSession) {
+                try {
+                    foundSession = localStorage.getItem('session_id');
+                    if (foundSession) {
+                        log('✓ Session ID loaded from localStorage', 'success');
+                    }
+                } catch (e) {
+                    console.log('Could not access localStorage:', e);
+                }
+            }
+            
+            // Try to get from URL parameter
+            if (!foundSession) {
+                const urlParams = new URLSearchParams(window.location.search);
+                foundSession = urlParams.get('session');
+                if (foundSession) {
+                    log('✓ Session ID loaded from URL parameter', 'success');
+                }
+            }
+            
+            if (foundSession) {
+                sessionId = foundSession;
+                document.getElementById('session-id-input').value = sessionId;
+                document.getElementById('current-session').textContent = sessionId;
+                log(`📋 Active session: ${sessionId.substring(0, 8)}...`, 'info');
+            } else {
+                log('⚠️ No active session found. Please enter a session ID manually.', 'error');
+                document.getElementById('current-session').textContent = 'None - Enter manually';
+            }
+        }
+        
+        function updateSession() {
+            const input = document.getElementById('session-id-input').value.trim();
+            if (!input) {
+                log('❌ Please enter a session ID', 'error');
+                return;
+            }
+            
+            sessionId = input;
+            document.getElementById('current-session').textContent = sessionId;
+            localStorage.setItem('dev_session_id', sessionId);
+            log(`✓ Session ID updated: ${sessionId.substring(0, 8)}...`, 'success');
+            document.getElementById('session-status').textContent = 'Ready';
+        }
+        
+        function reloadGameState() {
+            if (!sessionId) {
+                log('❌ No session ID set', 'error');
+                return;
+            }
+            
+            // Reload the game window if it's open
+            if (window.opener && !window.opener.closed && window.opener.loadGameState) {
+                try {
+                    window.opener.loadGameState();
+                    log('✓ Game state reloaded', 'success');
+                } catch (e) {
+                    log('⚠️ Game window not accessible. Changes will apply on next action.', 'warning');
+                }
+            } else {
+                log('⚠️ Game window not accessible. Changes will apply on next action.', 'warning');
+            }
+        }
+
+        async function changeFloor() {
+            const floor = document.getElementById('change-floor').value;
+            if (!floor || floor < 1) {
+                log('❌ Invalid floor number', 'error');
+                return;
+            }
+
+            const result = await makeRequest('/dev/change-floor', {
+                floor: parseInt(floor)
+            });
+
+            if (result && result.success) {
+                log(`✓ Moved to floor ${floor}`, 'success');
+            }
+        }
+
+        async function getPlayerInfo() {
+            const result = await makeRequest('/dev/get-player-info', {});
+
+            if (result && result.success && result.data.stats) {
+                const stats = result.data.stats;
+                log('📊 Player Stats:', 'info');
+                log(`  HP: ${stats.health}`, 'info');
+                log(`  Gold: ${stats.gold}`, 'info');
+                log(`  Attack: ${stats.attack}`, 'info');
+                log(`  Defense: ${stats.defense}`, 'info');
+                log(`  Speed: ${stats.speed}`, 'info');
+                log(`  Level: ${stats.level}`, 'info');
+                log(`  Floor: ${stats.floor}`, 'info');
+                log(`  In Battle: ${stats.in_battle ? 'Yes' : 'No'}`, 'info');
+                log(`  Allies: ${stats.allies}`, 'info');
+                log(`  Ailments: ${stats.ailments}`, 'info');
+            }
+        }
+    </script>
+</body>
+</html>
