@@ -45,6 +45,10 @@ class Enemy:
         # Status effects
         self.skip_next_turn = False  # For skipper allies
         
+        # Office element - randomly assigned
+        elements = ["accounting", "it", "marketing", "hr", "sales", "legal", "management", "intern"]
+        self.element = random.choice(elements)
+        
         # Ailments - enemies can inflict multiple types
         self.ailments = []  # List of active ailments on this enemy
         self.ailment_inflict_types = []  # List of ailment types this enemy can inflict
@@ -195,6 +199,7 @@ class Enemy:
             "gold_reward": self.gold_reward,
             "exp_reward": self.exp_reward,
             "skip_next_turn": self.skip_next_turn,
+            "element": self.element,
             "ailments": [ailment.to_dict() for ailment in self.ailments],
             "ailment_inflict_types": self.ailment_inflict_types,
             "ailment_inflict_chance": self.ailment_inflict_chance,
@@ -225,6 +230,7 @@ class Enemy:
         enemy.gold_reward = data["gold_reward"]
         enemy.exp_reward = data.get("exp_reward", 25 + (data["floor"] * 10))  # Backward compatibility
         enemy.skip_next_turn = data.get("skip_next_turn", False)  # Restore skip status
+        enemy.element = data.get("element", "intern")  # Default to intern for backward compatibility
         
         # Ailments (with defaults for backward compatibility)
         from .ailment import Ailment

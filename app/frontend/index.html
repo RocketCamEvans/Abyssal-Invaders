@@ -54,7 +54,11 @@
                         <div class="player-info card">
                             <div class="player-header">
                                 <img id="player-avatar" class="player-avatar" src="" alt="Player Avatar" />
-                                <h3><span id="player-name-display">Adventurer</span> <span id="player-ailments" class="ailments-display"></span></h3>
+                                <h3>
+                                    <span id="player-name-display">Adventurer</span> 
+                                    <span id="player-element" class="element-badge"></span>
+                                    <span id="player-ailments" class="ailments-display"></span>
+                                </h3>
                             </div>
                             <div class="stat-row">
                                 <span class="stat-label">❤️ Health:</span>
@@ -142,6 +146,7 @@
                                 <div class="enemy-info">
                                     <h3 class="enemy-name">
                                         <span id="enemy-name">Enemy</span>
+                                        <span id="enemy-element" class="element-badge"></span>
                                         <span id="enemy-ailments" class="ailments-display"></span>
                                         <span id="enemy-can-inflict" class="can-inflict-display" style="display: none;"></span>
                                         <span id="combat-loading-indicator" class="combat-loading-indicator hidden">
@@ -357,6 +362,25 @@
                     <h3 id="ally-encounter-name"></h3>
                     <p id="ally-encounter-description"></p>
                     <button id="ally-encounter-close-btn" class="btn btn-primary">Continue</button>
+                </div>
+            </div>
+
+            <!-- Timing Bar Modal -->
+            <div id="timing-bar-modal" class="modal timing-bar-modal">
+                <div class="modal-content timing-bar-content">
+                    <div class="timing-bar-header">
+                        <h2>⚔️ Time Your Attack!</h2>
+                        <p class="timing-instruction">Press <strong>SPACE</strong> when the indicator is in the <span style="color: #00ff00;">green zone</span>!</p>
+                    </div>
+                    <div class="timing-bar-container">
+                        <div class="timing-bar-track">
+                            <div class="timing-zone zone-perfect"></div>
+                            <div id="timing-indicator" class="timing-indicator"></div>
+                        </div>
+                    </div>
+                    <div class="timing-multiplier">
+                        <span id="timing-multiplier-text">Multiplier: <strong>?</strong></span>
+                    </div>
                 </div>
             </div>
 

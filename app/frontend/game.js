@@ -14,11 +14,65 @@ const gameState = {
     loadingMessage: '', // Store the current loading message
     enemySprite: null, // Cache the current enemy's sprite
     spriteCache: {}, // Cache sprites by enemy name: { enemyName: spritePath }
-    playerSprite: null // Cache the player's sprite
+    playerSprite: null, // Cache the player's sprite
+    timingBarActive: false, // Track if timing bar mini-game is active
+    timingBarPosition: 0, // Current position of timing indicator (0-100)
+    timingBarDirection: 1, // Direction of movement (1 or -1)
+    timingBarSpeed: 2, // Speed of movement (pixels per frame)
+    timingBarInterval: null // Interval ID for animation
 };
 
 // Make gameState globally accessible for dev tools
 window.gameState = gameState;
+
+// Element emoji mapping for office departments
+function getElementEmoji(element) {
+    const emojiMap = {
+        'accounting': '📊',
+        'it': '💻',
+        'marketing': '📱',
+        'hr': '👔',
+        'sales': '💼',
+        'legal': '⚖️',
+        'management': '👨‍💼',
+        'intern': '☕'
+    };
+    return emojiMap[element] || '❓';
+}
+
+// Format element name with proper capitalization
+function formatElementName(element) {
+    if (element === 'hr') {
+        return 'HR';
+    } else if (element === 'it') {
+        return 'IT';
+    } else {
+        return element.charAt(0).toUpperCase() + element.slice(1);
+    }
+}
+
+// Get element effectiveness multiplier (for UI hints)
+function getElementAdvantage(attackerElement, defenderElement) {
+    const elements = {
+        'accounting': { strong: ['marketing', 'hr'], weak: ['it', 'management'] },
+        'it': { strong: ['accounting', 'sales'], weak: ['hr', 'marketing'] },
+        'marketing': { strong: ['it', 'legal'], weak: ['accounting', 'management'] },
+        'hr': { strong: ['it', 'management'], weak: ['accounting', 'legal'] },
+        'sales': { strong: ['hr', 'legal'], weak: ['it', 'accounting'] },
+        'legal': { strong: ['accounting', 'sales'], weak: ['marketing', 'management'] },
+        'management': { strong: ['marketing', 'sales'], weak: ['hr', 'it'] },
+        'intern': { strong: [], weak: [] }
+    };
+    
+    if (!elements[attackerElement]) return 'neutral';
+    
+    if (elements[attackerElement].strong.includes(defenderElement)) {
+        return 'advantage';
+    } else if (elements[attackerElement].weak.includes(defenderElement)) {
+        return 'disadvantage';
+    }
+    return 'neutral';
+}
 
 // API Base URL
 const API_BASE = '/api';
@@ -139,6 +193,9 @@ function initializeElements() {
         allyModal: document.getElementById('ally-modal'),
         allyDetailModal: document.getElementById('ally-detail-modal'),
         shopModal: document.getElementById('shop-modal'),
+        timingBarModal: document.getElementById('timing-bar-modal'),
+        timingIndicator: document.getElementById('timing-indicator'),
+        timingMultiplierText: document.getElementById('timing-multiplier-text'),
         modalLeaderboardList: document.getElementById('modal-leaderboard-list'),
         modalStatsContent: document.getElementById('modal-stats-content'),
         modalItemList: document.getElementById('modal-item-list'),
@@ -412,7 +469,8 @@ function attachEventListeners() {
     // Combat (with animations)
     elements.attackBtn.addEventListener('click', (e) => {
         bounceButton(e.target);
-        performCombatAction('attack', false);
+        // Show timing bar instead of attacking directly
+        showTimingBar();
     });
     elements.useAllyBtn.addEventListener('click', (e) => {
         bounceButton(e.target);
@@ -863,6 +921,16 @@ function updatePlayerDisplay() {
         }
     }
     
+    // Update player element display
+    const playerElementEl = document.getElementById('player-element');
+    if (playerElementEl && gameState.player.element) {
+        const elementEmoji = getElementEmoji(gameState.player.element);
+        const elementName = formatElementName(gameState.player.element);
+        playerElementEl.textContent = `${elementEmoji} ${elementName}`;
+        playerElementEl.className = `element-badge element-${gameState.player.element}`;
+        playerElementEl.title = `Department: ${elementName}`;
+    }
+    
     // Update stats with ailment indicators
     const getStatAilmentIndicator = (ailmentType) => {
         if (!gameState.player.ailments) return '';
@@ -931,11 +999,35 @@ function updateAlliesList() {
                          ally.type === 'caster_paralysis' ? `⚡ Paralyze (Sev ${ally.value})` :
                          `${ally.value} DMG`;
         
+        // Add element badge if ally has an element (attackers/casters)
+        let elementBadge = '';
+        if (ally.element) {
+            const elementEmoji = getElementEmoji(ally.element);
+            const elementName = formatElementName(ally.element);
+            
+            // Determine color based on effectiveness vs current enemy
+            let elementClass = 'element-badge-neutral';
+            let effectivenessText = '';
+            if (gameState.inCombat && gameState.currentEnemy && gameState.currentEnemy.element) {
+                const advantage = getElementAdvantage(ally.element, gameState.currentEnemy.element);
+                if (advantage === 'advantage') {
+                    elementClass = 'element-badge-effective';
+                    effectivenessText = ' (Effective!)';
+                } else if (advantage === 'disadvantage') {
+                    elementClass = 'element-badge-weak';
+                    effectivenessText = ' (Weak!)';
+                }
+            }
+            
+            elementBadge = `<span class="ally-element-badge ${elementClass}" title="${elementName}${effectivenessText}">${elementEmoji} ${elementName}</span>`;
+        }
+        
         return `
             <div class="ally-card clickable" data-ally-index="${originalIndex}" onclick="showAllyDetails(${originalIndex})">
                 <div class="ally-header">
                     <span class="ally-icon">${typeEmoji[ally.type] || '🤝'}</span>
                     <span class="ally-name">${ally.name}</span>
+                    ${elementBadge}
                 </div>
                 <div class="ally-info-row">
                     <span class="ally-type">${ally.type}</span>
@@ -1241,6 +1333,177 @@ async function useItem(itemId) {
     }
 }
 
+// ============================================
+// TIMING BAR MINI-GAME
+// ============================================
+
+/**
+ * Show the timing bar modal and start the mini-game
+ */
+function showTimingBar() {
+    if (!elements.timingBarModal) {
+        console.error('Timing bar modal not found!');
+        return;
+    }
+    
+    // Calculate timing bar speed based on player vs enemy speed
+    const playerSpeed = gameState.player?.speed || 10;
+    const enemySpeed = gameState.currentEnemy?.speed || 10;
+    const speedDifference = enemySpeed - playerSpeed;
+    
+    // Base speed is 2.0
+    // For each point the enemy is faster, increase speed by 0.15
+    // For each point the player is faster, decrease speed by 0.15
+    // Min speed: 1.0, Max speed: 4.0
+    const baseSpeed = 2.0;
+    const speedModifier = speedDifference * 0.15;
+    gameState.timingBarSpeed = Math.max(1.0, Math.min(4.0, baseSpeed + speedModifier));
+    
+    console.log(`Timing bar speed: ${gameState.timingBarSpeed.toFixed(2)} (Player: ${playerSpeed}, Enemy: ${enemySpeed}, Diff: ${speedDifference})`);
+    
+    // Reset timing bar state
+    gameState.timingBarPosition = 0;
+    gameState.timingBarDirection = 1;
+    gameState.timingBarActive = true;
+    
+    // Show modal
+    elements.timingBarModal.classList.add('active');
+    
+    // Reset indicator position
+    if (elements.timingIndicator) {
+        elements.timingIndicator.style.left = '0%';
+    }
+    
+    // Update multiplier text
+    if (elements.timingMultiplierText) {
+        elements.timingMultiplierText.innerHTML = 'Multiplier: <strong>?</strong>';
+    }
+    
+    // Start animation
+    startTimingBarAnimation();
+    
+    // Add keyboard listener
+    document.addEventListener('keydown', handleTimingBarKeypress);
+}
+
+/**
+ * Start the timing bar animation
+ */
+function startTimingBarAnimation() {
+    // Clear any existing interval
+    if (gameState.timingBarInterval) {
+        clearInterval(gameState.timingBarInterval);
+    }
+    
+    gameState.timingBarInterval = setInterval(() => {
+        if (!gameState.timingBarActive) {
+            clearInterval(gameState.timingBarInterval);
+            return;
+        }
+        
+        // Update position
+        gameState.timingBarPosition += gameState.timingBarSpeed * gameState.timingBarDirection;
+        
+        // Bounce at edges
+        if (gameState.timingBarPosition >= 100) {
+            gameState.timingBarPosition = 100;
+            gameState.timingBarDirection = -1;
+        } else if (gameState.timingBarPosition <= 0) {
+            gameState.timingBarPosition = 0;
+            gameState.timingBarDirection = 1;
+        }
+        
+        // Update indicator position
+        if (elements.timingIndicator) {
+            elements.timingIndicator.style.left = `${gameState.timingBarPosition}%`;
+        }
+    }, 16); // ~60 FPS
+}
+
+/**
+ * Handle keypress during timing bar mini-game
+ */
+function handleTimingBarKeypress(e) {
+    if (!gameState.timingBarActive) return;
+    
+    if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        stopTimingBar();
+    }
+}
+
+/**
+ * Stop the timing bar and calculate multiplier
+ */
+function stopTimingBar() {
+    gameState.timingBarActive = false;
+    
+    // Clear interval
+    if (gameState.timingBarInterval) {
+        clearInterval(gameState.timingBarInterval);
+        gameState.timingBarInterval = null;
+    }
+    
+    // Remove keyboard listener
+    document.removeEventListener('keydown', handleTimingBarKeypress);
+    
+    // Calculate multiplier based on position
+    const position = gameState.timingBarPosition;
+    const multiplier = calculateTimingMultiplier(position);
+    
+    // Update display
+    if (elements.timingMultiplierText) {
+        const multiplierText = multiplier.toFixed(2) + 'x';
+        const color = multiplier >= 1.15 ? '#ffd700' : multiplier >= 1.0 ? '#4a90e2' : multiplier >= 0.9 ? '#f39c12' : '#e74c3c';
+        elements.timingMultiplierText.innerHTML = `Multiplier: <strong style="color: ${color}">${multiplierText}</strong>`;
+    }
+    
+    // Wait a moment to show the result, then perform attack
+    setTimeout(() => {
+        hideTimingBar();
+        performCombatAction('attack', false, null, multiplier);
+    }, 800);
+}
+
+/**
+ * Calculate damage multiplier based on timing bar position
+ * Zones: 0-11% = 0.7x, 11-32% = 0.9x, 32-47% = 1.0x, 47-53% = 1.15x,
+ *        53-68% = 1.0x, 68-89% = 0.9x, 89-100% = 0.7x
+ */
+function calculateTimingMultiplier(position) {
+    if (position >= 47 && position <= 53) {
+        // Perfect zone (6% in the middle)
+        return 1.15;
+    } else if ((position >= 32 && position < 47) || (position > 53 && position <= 68)) {
+        // Normal zone (15% on each side of perfect)
+        return 1.0;
+    } else if ((position >= 11 && position < 32) || (position > 68 && position <= 89)) {
+        // Good zone (21% on each side)
+        return 0.9;
+    } else {
+        // Poor zone (11% on each end)
+        return 0.7;
+    }
+}
+
+/**
+ * Hide the timing bar modal
+ */
+function hideTimingBar() {
+    if (elements.timingBarModal) {
+        elements.timingBarModal.classList.remove('active');
+    }
+    
+    // Ensure animation is stopped
+    if (gameState.timingBarInterval) {
+        clearInterval(gameState.timingBarInterval);
+        gameState.timingBarInterval = null;
+    }
+    
+    // Remove keyboard listener (in case it's still there)
+    document.removeEventListener('keydown', handleTimingBarKeypress);
+}
+
 // Show ally selection modal
 function showAllyModal() {
     if (!gameState.player || !gameState.player.allies || gameState.player.allies.length === 0) {
@@ -1277,6 +1540,29 @@ function showAllyModal() {
         
         const isDisabled = ally.uses_remaining === 0 || ally.used ? 'disabled' : '';
         
+        // Add element badge if ally has an element
+        let elementBadge = '';
+        if (ally.element) {
+            const elementEmoji = getElementEmoji(ally.element);
+            const elementName = formatElementName(ally.element);
+            
+            // Determine color based on effectiveness vs current enemy
+            let elementClass = 'element-badge-neutral';
+            let effectivenessText = '';
+            if (gameState.currentEnemy && gameState.currentEnemy.element) {
+                const advantage = getElementAdvantage(ally.element, gameState.currentEnemy.element);
+                if (advantage === 'advantage') {
+                    elementClass = 'element-badge-effective';
+                    effectivenessText = ' (Effective!)';
+                } else if (advantage === 'disadvantage') {
+                    elementClass = 'element-badge-weak';
+                    effectivenessText = ' (Weak!)';
+                }
+            }
+            
+            elementBadge = `<span class="ally-element-badge ${elementClass}" title="${elementName}${effectivenessText}">${elementEmoji} ${elementName}</span>`;
+        }
+        
         return `
             <div class="ally-card ${isDisabled}" data-ally-index="${index}">
                 <div class="ally-sprite-preview">
@@ -1285,6 +1571,7 @@ function showAllyModal() {
                 <div class="ally-header">
                     <span class="ally-icon">${typeEmoji[ally.type] || '👤'}</span>
                     <span class="ally-title">${ally.name}</span>
+                    ${elementBadge}
                 </div>
                 <div class="ally-description">${ally.description || typeDescription[ally.type]}</div>
                 <div class="ally-stats">
@@ -1779,6 +2066,32 @@ function showCombatArea() {
         elements.enemyAttack.textContent = (gameState.currentEnemy.attack_power || 0) + getEnemyStatAilmentIndicator('weakened');
         elements.enemyDefense.textContent = (gameState.currentEnemy.defense || 0) + getEnemyStatAilmentIndicator('irradiated');
         elements.enemySpeed.textContent = (gameState.currentEnemy.speed || 10) + getEnemyStatAilmentIndicator('shackled');
+        
+        // Update enemy element display
+        const enemyElementEl = document.getElementById('enemy-element');
+        if (enemyElementEl && gameState.currentEnemy.element) {
+            const elementEmoji = getElementEmoji(gameState.currentEnemy.element);
+            const elementName = formatElementName(gameState.currentEnemy.element);
+            enemyElementEl.textContent = `${elementEmoji} ${elementName}`;
+            
+            // Apply color-coded effectiveness classes
+            let badgeClass = 'element-badge element-badge-neutral';
+            let titleText = `Department: ${elementName} - Neutral matchup`;
+            
+            if (gameState.player && gameState.player.element) {
+                const advantage = getElementAdvantage(gameState.player.element, gameState.currentEnemy.element);
+                if (advantage === 'advantage') {
+                    badgeClass = 'element-badge element-badge-effective';
+                    titleText = `Department: ${elementName} - You have ADVANTAGE! (1.25x damage)`;
+                } else if (advantage === 'disadvantage') {
+                    badgeClass = 'element-badge element-badge-weak';
+                    titleText = `Department: ${elementName} - You have DISADVANTAGE! (0.8x damage)`;
+                }
+            }
+            
+            enemyElementEl.className = badgeClass;
+            enemyElementEl.title = titleText;
+        }
     }
     
     // Show/hide ally button based on allies array AND if ally hasn't been used this battle
@@ -1828,7 +2141,7 @@ function hideCombatArea() {
 }
 
 // Perform combat action
-async function performCombatAction(action, useAlly = false, allyIndex = null) {
+async function performCombatAction(action, useAlly = false, allyIndex = null, timingMultiplier = null) {
     // Prevent multiple simultaneous attacks
     if (gameState.isLoading) {
         console.warn('Already loading, ignoring duplicate combat action');
@@ -1883,6 +2196,11 @@ async function performCombatAction(action, useAlly = false, allyIndex = null) {
             action: action,
             use_ally: useAlly
         };
+        
+        // Add timing multiplier if provided
+        if (timingMultiplier !== null && timingMultiplier !== undefined) {
+            requestBody.timing_multiplier = timingMultiplier;
+        }
         
         // Add ally_index if provided
         if (allyIndex !== null) {

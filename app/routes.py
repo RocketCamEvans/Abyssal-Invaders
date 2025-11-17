@@ -113,6 +113,8 @@ def create_player():
                 'level': player.level,
                 'attack_power': player.attack_power,
                 'defense': player.defense,
+                'speed': player.speed,
+                'element': player.element,
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
@@ -424,7 +426,8 @@ def player_attack():
     {
         "session_id": "player-session-id",
         "action": "attack" | "flee",
-        "ally_index": 0 (optional, index of ally to use in attack)
+        "ally_index": 0 (optional, index of ally to use in attack),
+        "timing_multiplier": 1.0 (optional, damage multiplier from timing mini-game)
     }
     """
     try:
@@ -432,6 +435,7 @@ def player_attack():
         session_id = data.get('session_id')
         action = data.get('action')
         ally_index = data.get('ally_index')  # Optional: which ally to use
+        timing_multiplier = data.get('timing_multiplier')  # Optional: timing bonus
 
         if not session_id or not action:
             return create_error_response("Missing session_id or action"), 400
@@ -455,9 +459,9 @@ def player_attack():
         controllers = get_controllers()
         
         if action == "attack":
-            # Execute attack (with optional ally)
+            # Execute attack (with optional ally and timing multiplier)
             use_ally = ally_index is not None
-            attack_result = controllers['combat'].execute_attack(player, use_ally, ally_index)
+            attack_result = controllers['combat'].execute_attack(player, use_ally, ally_index, timing_multiplier)
         elif action == "flee":
             # Execute flee
             attack_result = controllers['combat'].execute_flee(player)
@@ -795,6 +799,8 @@ def load_player():
                 'level': player.level,
                 'attack_power': player.attack_power,
                 'defense': player.defense,
+                'speed': player.speed,
+                'element': player.element,
                 'max_health': player.max_health,
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],

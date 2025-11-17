@@ -25,6 +25,7 @@ class Player:
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
         self.inventory = []  # List of item objects
+        self.element = "intern"  # Office department element (starts as intern)
         
         # Experience system
         self.experience = 0
@@ -427,6 +428,7 @@ class Player:
             "inventory": [item.to_dict() for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
+            "element": self.element,
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
@@ -460,6 +462,7 @@ class Player:
         player.attack_power = data["attack_power"]
         player.defense = data["defense"]
         player.speed = data.get("speed", 10)  # Default to 10 for backward compatibility
+        player.element = data.get("element", "intern")  # Default to intern for backward compatibility
         player.floor = data["floor"]
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])

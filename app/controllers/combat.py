@@ -4,6 +4,7 @@ Combat controller for handling battles between players and enemies.
 
 from typing import Tuple, Dict, Any, Optional
 from ..models import Player, Enemy, Room
+from ..models.element import get_element_effectiveness, get_element_matchup_text
 from ..utils import create_error_response, create_success_response
 from ..utils.helpers import calculate_damage_with_variance, format_combat_summary, roll_dice
 import random
@@ -119,7 +120,7 @@ class CombatController:
             "ally": ally_data
         }, "Battle initiated")
     
-    def execute_attack(self, player: Player, use_ally: bool = False, ally_index: Optional[int] = None) -> Dict[str, Any]:
+    def execute_attack(self, player: Player, use_ally: bool = False, ally_index: Optional[int] = None, timing_multiplier: Optional[float] = None) -> Dict[str, Any]:
         """
         Execute a player attack in turn-based combat.
         
@@ -127,6 +128,7 @@ class CombatController:
             player (Player): Player object
             use_ally (bool): Whether to use ally special attack
             ally_index (Optional[int]): Index of the ally to use from player's allies list
+            timing_multiplier (Optional[float]): Damage multiplier from timing mini-game (0.7, 0.9, 1.0, 1.15)
             
         Returns:
             Dict[str, Any]: Attack result
@@ -138,6 +140,9 @@ class CombatController:
         enemy = Enemy.from_dict(player.current_enemy)
         
         battle_log = []
+        
+        # Store timing multiplier for use in _execute_player_attack
+        self.timing_multiplier = timing_multiplier
         
         # Player attack (with ally if requested)
         if use_ally and ally_index is not None and 0 <= ally_index < len(player.allies):
@@ -497,12 +502,12 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
     
     def _check_critical_hit(self) -> bool:
         """
-        Check if an attack is a critical hit (10% chance).
+        Check if an attack is a critical hit (2% chance).
         
         Returns:
             bool: True if critical hit
         """
-        return random.random() < 0.10  # 10% critical hit chance
+        return random.random() < 0.02  # 2% critical hit chance
     
     def _execute_ally_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
@@ -548,9 +553,23 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             
             # Add some variance
             damage_dealt = calculate_damage_with_variance(damage_dealt)
+            
+            # Apply elemental effectiveness if ally has an element
+            ally_element = ally_data.get('element')
+            enemy_element = getattr(enemy, 'element', 'intern')
+            element_multiplier = 1.0
+            element_desc = ""
+            
+            if ally_element:
+                element_multiplier = get_element_effectiveness(ally_element, enemy_element)
+                damage_dealt = int(damage_dealt * element_multiplier)
+                element_desc = get_element_matchup_text(ally_element, enemy_element)
+                if element_desc:
+                    element_desc = f" {element_desc}"
+            
             enemy.take_damage(damage_dealt)
             
-            description = f"{ally_data['description']} {ally_name} deals {damage_dealt} damage! {leaving_message}"
+            description = f"{ally_data['description']} {ally_name} deals {damage_dealt} damage!{element_desc} {leaving_message}"
             
             battle_log.append({
                 "type": "ally_attack",
@@ -558,6 +577,7 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
                 "target": enemy.name,
                 "damage": damage_dealt,
                 "is_critical": False,
+                "element_multiplier": element_multiplier,
                 "description": description
             })
             
@@ -768,10 +788,41 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
         
         damage = calculate_damage_with_variance(base_damage)
+        
+        # Apply timing multiplier if present
+        timing_multiplier = getattr(self, 'timing_multiplier', None)
+        if timing_multiplier is not None:
+            damage = int(damage * timing_multiplier)
+            print(f"DEBUG COMBAT: Applied timing multiplier {timing_multiplier}x, damage after timing: {damage}")
+        
+        # Apply elemental effectiveness
+        player_element = getattr(player, 'element', 'intern')
+        enemy_element = getattr(enemy, 'element', 'intern')
+        element_multiplier = get_element_effectiveness(player_element, enemy_element)
+        
+        if element_multiplier != 1.0:
+            damage = int(damage * element_multiplier)
+            print(f"DEBUG COMBAT: Applied element multiplier {element_multiplier}x ({player_element} vs {enemy_element}), final damage: {damage}")
+        
         enemy.take_damage(damage)
         
         # Generate description
-        base_description = f"{player.name} attacks {enemy.name} for {damage} damage!"
+        timing_desc = ""
+        if timing_multiplier is not None:
+            if timing_multiplier >= 1.15:
+                timing_desc = " **PERFECT TIMING!**"
+            elif timing_multiplier >= 1.0:
+                timing_desc = " *Good timing.*"
+            elif timing_multiplier >= 0.9:
+                timing_desc = " *Slightly off.*"
+            else:
+                timing_desc = " *Poorly timed.*"
+        
+        element_desc = get_element_matchup_text(player_element, enemy_element) or ""
+        if element_desc:
+            element_desc = " " + element_desc
+        
+        base_description = f"{player.name} attacks {enemy.name} for {damage} damage!{timing_desc}{element_desc}"
         if is_critical:
             crit_desc = self._generate_critical_hit_description(player.name, enemy.name, damage, True)
             description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
@@ -784,8 +835,14 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             "target": enemy.name,
             "damage": damage,
             "is_critical": is_critical,
+            "timing_multiplier": timing_multiplier,
+            "element_multiplier": element_multiplier,
             "description": description
         })
+        
+        # Clear timing multiplier after use
+        if hasattr(self, 'timing_multiplier'):
+            delattr(self, 'timing_multiplier')
         
         # Tick ailments at end of turn
         self._tick_ailments_end_of_turn(player, player.name, battle_log)
@@ -850,10 +907,21 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
         
         damage = calculate_damage_with_variance(base_damage)
+        
+        # Apply elemental effectiveness (enemy attacking player)
+        enemy_element = getattr(enemy, 'element', 'intern')
+        player_element = getattr(player, 'element', 'intern')
+        element_multiplier = get_element_effectiveness(enemy_element, player_element)
+        damage = int(damage * element_multiplier)
+        
         player.take_damage(damage)
         
-        # Generate description
+        # Generate description with elemental effectiveness
         base_description = f"{enemy.name} attacks {player.name} for {damage} damage!"
+        element_desc = get_element_matchup_text(enemy_element, player_element)
+        if element_desc:
+            base_description += f" {element_desc}"
+        
         if is_critical:
             crit_desc = self._generate_critical_hit_description(enemy.name, player.name, damage, False)
             description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
@@ -866,6 +934,7 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             "target": player.name,
             "damage": damage,
             "is_critical": is_critical,
+            "element_multiplier": element_multiplier,
             "description": description
         })
         
