@@ -217,6 +217,8 @@ function initializeElements() {
         playerValue: document.getElementById('player-value'),
         hitBtn: document.getElementById('hit-btn'),
         standBtn: document.getElementById('stand-btn'),
+        splitBtn: document.getElementById('split-btn'),
+        doubleBtn: document.getElementById('double-btn'),
         gameMessage: document.getElementById('game-message'),
         newHandBtn: document.getElementById('new-hand-btn'),
         // Ally detail modal elements
@@ -547,6 +549,8 @@ function attachEventListeners() {
     elements.startBlackjackBtn.addEventListener('click', startBlackjack);
     elements.hitBtn.addEventListener('click', blackjackHit);
     elements.standBtn.addEventListener('click', blackjackStand);
+    elements.splitBtn.addEventListener('click', blackjackSplit);
+    elements.doubleBtn.addEventListener('click', blackjackDouble);
     elements.newHandBtn.addEventListener('click', () => {
         elements.casinoBetScreen.classList.remove('hidden');
         elements.casinoGameScreen.classList.add('hidden');
@@ -3009,6 +3013,54 @@ async function blackjackStand() {
     }
 }
 
+// Split in blackjack
+async function blackjackSplit() {
+    const result = await apiRequest('/casino/blackjack/split', 'POST', {
+        session_id: gameState.sessionId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = gameState.player.gold;
+    updatePlayerDisplay();
+    
+    // Display game
+    displayBlackjackGame(result.data.game);
+    
+    if (result.data.game.message) {
+        addLogEntry(result.data.game.message, 'info');
+    }
+}
+
+// Double down in blackjack
+async function blackjackDouble() {
+    const result = await apiRequest('/casino/blackjack/double', 'POST', {
+        session_id: gameState.sessionId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = gameState.player.gold;
+    updatePlayerDisplay();
+    
+    // Display game
+    displayBlackjackGame(result.data.game);
+    
+    if (result.data.game.message) {
+        addLogEntry(result.data.game.message, 'important');
+    }
+}
+
 // Display blackjack game state
 function displayBlackjackGame(game) {
     // Display dealer cards
@@ -3017,16 +3069,45 @@ function displayBlackjackGame(game) {
     ).join(' ');
     elements.dealerValue.textContent = game.dealer_value;
     
-    // Display player cards
-    elements.playerCards.innerHTML = game.player_cards.map(card => 
+    // Display player main hand
+    let playerHandHTML = '<div class="hand-container">';
+    if (game.is_split) {
+        playerHandHTML += `<div class="split-hand ${game.active_hand === 'main' ? 'active-hand' : ''}">`;
+        playerHandHTML += '<span class="hand-label">Main Hand</span>';
+    }
+    playerHandHTML += game.player_cards.map(card => 
         `<span class="playing-card">${card}</span>`
     ).join(' ');
-    elements.playerValue.textContent = game.player_value;
+    if (game.is_split) {
+        playerHandHTML += `<span class="hand-value">${game.player_value}</span></div>`;
+    }
+    
+    // Display split hand if applicable
+    if (game.is_split && game.split_cards) {
+        playerHandHTML += `<div class="split-hand ${game.active_hand === 'split' ? 'active-hand' : ''}">`;
+        playerHandHTML += '<span class="hand-label">Split Hand</span>';
+        playerHandHTML += game.split_cards.map(card => 
+            `<span class="playing-card">${card}</span>`
+        ).join(' ');
+        playerHandHTML += `<span class="hand-value">${game.split_value}</span></div>`;
+    }
+    playerHandHTML += '</div>';
+    
+    elements.playerCards.innerHTML = playerHandHTML;
+    
+    // Update player value display (show main hand value if not split)
+    if (!game.is_split) {
+        elements.playerValue.textContent = game.player_value;
+    } else {
+        elements.playerValue.textContent = `Playing: ${game.active_hand}`;
+    }
     
     // Show/hide controls based on game state
     if (game.game_over) {
         elements.hitBtn.classList.add('hidden');
         elements.standBtn.classList.add('hidden');
+        elements.splitBtn.classList.add('hidden');
+        elements.doubleBtn.classList.add('hidden');
         elements.newHandBtn.classList.remove('hidden');
         
         // Display result message
@@ -3038,7 +3119,27 @@ function displayBlackjackGame(game) {
         elements.hitBtn.classList.remove('hidden');
         elements.standBtn.classList.remove('hidden');
         elements.newHandBtn.classList.add('hidden');
-        elements.gameMessage.textContent = '';
+        
+        // Show/hide split and double buttons based on availability
+        if (game.can_split) {
+            elements.splitBtn.classList.remove('hidden');
+        } else {
+            elements.splitBtn.classList.add('hidden');
+        }
+        
+        if (game.can_double) {
+            elements.doubleBtn.classList.remove('hidden');
+        } else {
+            elements.doubleBtn.classList.add('hidden');
+        }
+        
+        // Display current message if any
+        if (game.message) {
+            elements.gameMessage.textContent = game.message;
+            elements.gameMessage.className = 'game-message info';
+        } else {
+            elements.gameMessage.textContent = '';
+        }
     }
 }
 // ============================================

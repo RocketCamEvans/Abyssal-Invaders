@@ -1323,13 +1323,14 @@ def blackjack_hit():
         controllers = get_controllers()
         game_state = controllers['blackjack'].hit(game_state)
         
+        # Save game state (always, even when switching hands)
+        player_data['blackjack_game'] = game_state
+        
         # Handle payout if game ended
         if game_state['game_over']:
             payout = game_state.get('payout', 0)
             player_data['gold'] += payout
             player_data.pop('blackjack_game', None)  # Remove game state
-        else:
-            player_data['blackjack_game'] = game_state
         
         user_db.save_user(session_id, player_data)
         
@@ -1377,10 +1378,144 @@ def blackjack_stand():
         controllers = get_controllers()
         game_state = controllers['blackjack'].stand(game_state)
         
-        # Handle payout
+        # Handle payout and cleanup if game is over
+        if game_state['game_over']:
+            payout = game_state.get('payout', 0)
+            player_data['gold'] += payout
+            player_data.pop('blackjack_game', None)  # Remove game state
+        else:
+            # Game continues (switched to split hand)
+            player_data['blackjack_game'] = game_state
+        
+        user_db.save_user(session_id, player_data)
+        
+        # Get display version
+        hide_dealer = not game_state['game_over']
+        display = controllers['blackjack'].get_game_display(game_state, hide_dealer=hide_dealer)
+        
+        return create_success_response({
+            "game": display,
+            "player_gold": player_data['gold']
+        }, game_state.get('message', 'Round complete'))
+        
+    except Exception as e:
+        return create_error_response(f"Error standing in blackjack: {str(e)}"), 500
+
+
+@bp.route('/casino/blackjack/split', methods=['POST'])
+def blackjack_split():
+    """
+    Split hand in blackjack (when player has two cards of same rank).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player and game state
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if 'blackjack_game' not in player_data:
+            return create_error_response("No active blackjack game"), 400
+        
+        game_state = player_data['blackjack_game']
+        
+        # Check if split is allowed
+        if not game_state.get('can_split'):
+            return create_error_response("Cannot split this hand"), 400
+        
+        # Check if player has enough gold for second bet
+        bet = game_state['bet']
+        if player_data['gold'] < bet:
+            return create_error_response(f"Not enough gold to split. Need {bet} more gold."), 400
+        
+        # Deduct additional bet for split hand
+        player_data['gold'] -= bet
+        
+        # Execute split
+        controllers = get_controllers()
+        game_state = controllers['blackjack'].split(game_state)
+        
+        # Handle payout if game ended immediately
+        if game_state['game_over']:
+            payout = game_state.get('payout', 0)
+            player_data['gold'] += payout
+            player_data.pop('blackjack_game', None)
+        else:
+            player_data['blackjack_game'] = game_state
+        
+        user_db.save_user(session_id, player_data)
+        
+        # Get display version
+        display = controllers['blackjack'].get_game_display(game_state)
+        
+        return create_success_response({
+            "game": display,
+            "player_gold": player_data['gold']
+        }, game_state.get('message', 'Hand split!'))
+        
+    except Exception as e:
+        return create_error_response(f"Error splitting in blackjack: {str(e)}"), 500
+
+
+@bp.route('/casino/blackjack/double', methods=['POST'])
+def blackjack_double():
+    """
+    Double down in blackjack (double bet, draw one card, stand).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player and game state
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if 'blackjack_game' not in player_data:
+            return create_error_response("No active blackjack game"), 400
+        
+        game_state = player_data['blackjack_game']
+        
+        # Check if double is allowed
+        if not game_state.get('can_double'):
+            return create_error_response("Cannot double down this hand"), 400
+        
+        # Check if player has enough gold to double bet
+        bet = game_state['bet']
+        if player_data['gold'] < bet:
+            return create_error_response(f"Not enough gold to double down. Need {bet} more gold."), 400
+        
+        # Deduct additional bet
+        player_data['gold'] -= bet
+        
+        # Execute double down
+        controllers = get_controllers()
+        game_state = controllers['blackjack'].double_down(game_state)
+        
+        # Handle payout (game always ends after double down)
         payout = game_state.get('payout', 0)
         player_data['gold'] += payout
-        player_data.pop('blackjack_game', None)  # Remove game state
+        player_data.pop('blackjack_game', None)
         
         user_db.save_user(session_id, player_data)
         
@@ -1390,10 +1525,10 @@ def blackjack_stand():
         return create_success_response({
             "game": display,
             "player_gold": player_data['gold']
-        }, game_state.get('message', 'Round complete'))
+        }, game_state.get('message', 'Doubled down!'))
         
     except Exception as e:
-        return create_error_response(f"Error standing in blackjack: {str(e)}"), 500
+        return create_error_response(f"Error doubling down in blackjack: {str(e)}"), 500
 
 
 # Health check for individual components
