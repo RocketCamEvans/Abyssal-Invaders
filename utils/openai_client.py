@@ -89,20 +89,22 @@ class OpenAIClient:
         """
         room_context = f" in {room_description}" if room_description else ""
         
-        prompt = f"""You are creating enemies for a whimsical fantasy dungeon crawler set in a cursed office building.
+        prompt = f"""You're creating enemies for a cursed office building dungeon crawler. Floor {floor}{room_context}.
 
-An evil wizard cursed Rocket Software's building into an infinite labyrinth. Employees now fight back with fantasy powers!
+THEME: An evil wizard cursed Rocket Software into a monster labyrinth. Mix office elements with fantasy.
 
-Create an enemy for floor {floor}{room_context}.
+STYLE: Whimsical, creative, but COHERENT. The enemy should make sense for this setting.
 
-IMPORTANT: Mix business-themed enemies (like "Suited Vampire" or "Sentient Water Fountain") with generic fantasy monsters (like "Mossy Lurker"). Keep a fantastical but whimsical, slightly funny tone.
+IMPORTANT: Create UNIQUE, VARIED enemies. Don't repeat common tropes. Think of creative combinations!
 
-Respond ONLY with a JSON object (no other text):
-{{"name": "Enemy Name (2-4 words)", "description": "Brief, whimsical description (MAX 200 characters)"}}
+EXAMPLES: "Sentient Copier" that shoots paper cuts, "Coffee Elemental" that scalds enemies, "Suited Vampire" draining motivation, "Filing Cabinet Mimic" that ambushes workers.
 
-The description MUST be under 200 characters. Be creative but concise! Higher floors = more dangerous enemies."""
+Higher floors = more dangerous/creative enemies.
 
-        response = self.generate_completion(prompt, max_tokens=120, temperature=0.85, generation_type="enemy_content")
+Return JSON:
+{{"name":"2-4 words","description":"Brief, fitting description under 200 chars"}}"""
+
+        response = self.generate_completion(prompt, max_tokens=120, temperature=0.8, generation_type="enemy_content")
         
         if response:
             try:
@@ -121,11 +123,19 @@ The description MUST be under 200 characters. Be creative but concise! Higher fl
             except json.JSONDecodeError:
                 pass
         
-        # Fallback if API fails or returns invalid JSON
-        return {
-            "name": f"Floor {floor} Creature",
-            "description": "A mysterious creature lurks in the shadows, adapted to the dangers of this level."
-        }
+        # Fallback with creative names if API fails or returns invalid JSON
+        creative_fallbacks = [
+            {"name": "Corrupted Intern", "description": "Once a fresh-faced worker, now twisted by the curse into a mindless corporate drone."},
+            {"name": "Paper Swarm", "description": "A whirlwind of cursed documents that slice through the air with deadly precision."},
+            {"name": "Possessed Desk Chair", "description": "An ergonomic nightmare that rolls toward victims with malevolent intent."},
+            {"name": "Phantom Manager", "description": "A spectral supervisor that drains morale and life force with endless meetings."},
+            {"name": "Stapler Demon", "description": "A nightmarish fusion of office supplies that fires cursed staples at intruders."},
+            {"name": "Coffee Elemental", "description": "A scalding entity formed from the break room's darkest brews, bitter and dangerous."},
+            {"name": "Filing Beast", "description": "A monstrous creature made of metal cabinets that ambushes the unprepared."},
+            {"name": "Keyboard Wraith", "description": "A ghostly entity that types curses into reality with ethereal keystrokes."}
+        ]
+        import random
+        return random.choice(creative_fallbacks)
     
     def generate_ally_content(self, floor: int, room_description: str = "") -> Dict[str, str]:
         """
@@ -140,16 +150,20 @@ The description MUST be under 200 characters. Be creative but concise! Higher fl
         """
         room_context = f" in {room_description}" if room_description else ""
         
-        prompt = f"""Create a helpful ally for floor {floor} of a dungeon crawler game{room_context}.
+        prompt = f"""Create an ally for a cursed office building dungeon. Floor {floor}{room_context}.
 
-Please respond with a JSON object containing:
-- "name": A short, friendly ally name (2-3 words max)
-- "description": A brief description of why they want to help (1-2 sentences)
+SETTING: Rocket Software building cursed by evil wizard. Employees fight back with newfound powers.
 
-The ally should feel appropriate for floor {floor} and be someone who would aid the player in combat.
+TONE: Whimsical but coherent. They should feel like actual office workers or objects turned heroic.
 
-Example format:
-{{"name": "Brave Scout", "description": "A seasoned explorer who recognizes a kindred spirit and offers to lend their bow to your cause."}}"""
+IMPORTANT: Be CREATIVE and VARIED! Don't use the same archetypes. Think of unique combinations!
+
+EXAMPLES: "Brave Intern" with uncanny enthusiasm, "Enchanted Stapler" that binds enemies, "Ex-Janitor Wizard" who knows secret passages, "IT Support Mage" who debugs reality.
+
+Create someone fitting this world who wants to help.
+
+JSON:
+{{"name":"2-3 words","description":"Why they're helping (1-2 clear sentences)"}}"""
 
         response = self.generate_completion(prompt, max_tokens=100, temperature=0.8, generation_type="ally_content")
         

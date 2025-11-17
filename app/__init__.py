@@ -39,6 +39,19 @@ def create_app(config_name: str = 'development') -> Flask:
     from . import routes
     app.register_blueprint(routes.bp)
     
+    # Register dev routes if DEV_MODE_KEY is set
+    dev_key = os.environ.get('DEV_MODE_KEY', '')
+    print(f"DEBUG: DEV_MODE_KEY from environment: '{dev_key}'")
+    if dev_key:
+        try:
+            from . import dev_routes
+            app.register_blueprint(dev_routes.dev_bp)
+            print(f"✓ Developer mode enabled (access with /dev?key={dev_key})")
+        except Exception as e:
+            print(f"✗ Failed to register dev routes: {e}")
+    else:
+        print("ℹ Developer mode disabled (no DEV_MODE_KEY set)")
+    
     # Register frontend routes
     _register_frontend_routes(app)
     
@@ -56,6 +69,7 @@ def _register_frontend_routes(app: Flask):
         app (Flask): Flask application instance
     """
     frontend_dir = Path(__file__).parent / 'frontend'
+    sprites_dir = Path(__file__).parent / 'sprites'
     
     @app.route('/')
     def index():
@@ -66,6 +80,11 @@ def _register_frontend_routes(app: Flask):
     def serve_static(filename):
         """Serve static files (CSS, JS)."""
         return send_from_directory(str(frontend_dir), filename)
+    
+    @app.route('/static/sprites/<path:filename>')
+    def serve_sprite(filename):
+        """Serve monster sprite files."""
+        return send_from_directory(str(sprites_dir), filename)
     
     # Register error handlers
     _register_error_handlers(app)

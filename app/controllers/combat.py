@@ -4,6 +4,7 @@ Combat controller for handling battles between players and enemies.
 
 from typing import Tuple, Dict, Any, Optional
 from ..models import Player, Enemy, Room
+from ..models.element import get_element_effectiveness, get_element_matchup_text
 from ..utils import create_error_response, create_success_response
 from ..utils.helpers import calculate_damage_with_variance, format_combat_summary, roll_dice
 import random
@@ -119,7 +120,7 @@ class CombatController:
             "ally": ally_data
         }, "Battle initiated")
     
-    def execute_attack(self, player: Player, use_ally: bool = False, ally_index: Optional[int] = None) -> Dict[str, Any]:
+    def execute_attack(self, player: Player, use_ally: bool = False, ally_index: Optional[int] = None, timing_multiplier: Optional[float] = None) -> Dict[str, Any]:
         """
         Execute a player attack in turn-based combat.
         
@@ -127,6 +128,7 @@ class CombatController:
             player (Player): Player object
             use_ally (bool): Whether to use ally special attack
             ally_index (Optional[int]): Index of the ally to use from player's allies list
+            timing_multiplier (Optional[float]): Damage multiplier from timing mini-game (0.7, 0.9, 1.0, 1.15)
             
         Returns:
             Dict[str, Any]: Attack result
@@ -138,6 +140,9 @@ class CombatController:
         enemy = Enemy.from_dict(player.current_enemy)
         
         battle_log = []
+        
+        # Store timing multiplier for use in _execute_player_attack
+        self.timing_multiplier = timing_multiplier
         
         # Player attack (with ally if requested)
         if use_ally and ally_index is not None and 0 <= ally_index < len(player.allies):
@@ -193,13 +198,33 @@ class CombatController:
                     "description": f"{result['description']} {ally.name} deals {damage} damage! {result['message']}"
                 })
             elif result['type'] == 'skipper':
-                # Skip enemy turn
-                enemy.skip_next_turn = True
+                # Skip enemy turn - set to 2 so enemy skips this turn and the next
+                enemy.skip_next_turn = 2
                 battle_log.append({
                     "type": "ally_skip",
                     "ally": ally.name,
                     "target": enemy.name,
                     "description": f"{result['description']} {result['message']}"
+                })
+            elif result['type'] == 'caster_poison' or result['type'] == 'caster_paralysis':
+                # Inflict ailment on enemy
+                from ..models.ailment import Ailment, calculate_ailment_duration
+                
+                ailment_type = 'poison' if result['type'] == 'caster_poison' else 'paralysis'
+                severity = result['value']  # Ally's value is the severity
+                duration = calculate_ailment_duration(severity)
+                
+                ailment = Ailment(ailment_type, severity, duration)
+                enemy.add_ailment(ailment)
+                
+                ailment_emoji = ailment.get_emoji()
+                battle_log.append({
+                    "type": "ally_caster",
+                    "ally": ally.name,
+                    "target": enemy.name,
+                    "ailment": ailment_type,
+                    "severity": severity,
+                    "description": f"{result['description']} {enemy.name} is afflicted with {ailment.get_name()} {ailment_emoji} (Severity {severity})! {result['message']}"
                 })
             
             # Mark ally as used this battle (but don't remove from player's list - allies are permanent!)
@@ -211,9 +236,76 @@ class CombatController:
             print(f"DEBUG COMBAT: After using ally, player still has {len(player.allies)} allies")
             
         else:
-            damage = self._execute_player_attack(player, enemy, battle_log)
+            # Determine turn order and double attack based on speed
+            # Apply shackled reduction to speed
+            player_speed = self._get_effective_stat(player, 'speed', player.speed)
+            enemy_speed = self._get_effective_stat(enemy, 'speed', enemy.speed)
+            
+            # Check for 3x speed advantage (double attack)
+            player_double_attack = player_speed >= enemy_speed * 3
+            enemy_double_attack = enemy_speed >= player_speed * 3
+            
+            player_goes_first = player_speed >= enemy_speed
+            
+            print(f"DEBUG COMBAT: Player speed={player_speed}, Enemy speed={enemy_speed}")
+            print(f"DEBUG COMBAT: Player double attack={player_double_attack}, Enemy double attack={enemy_double_attack}")
+            
+            if player_double_attack:
+                # Player is 3x faster - attacks twice before enemy can respond
+                battle_log.append({
+                    "type": "speed_advantage",
+                    "description": f"⚡ Your incredible speed allows you to strike twice before {enemy.name} can react!"
+                })
+                
+                # First player attack
+                damage1 = self._execute_player_attack(player, enemy, battle_log)
+                
+                # Check if enemy is still alive for second attack
+                if enemy.is_alive():
+                    # Second player attack
+                    damage2 = self._execute_player_attack(player, enemy, battle_log)
+                    
+                    # Enemy gets one attack if still alive
+                    if enemy.is_alive():
+                        self._execute_enemy_attack(player, enemy, battle_log)
+                        
+            elif enemy_double_attack:
+                # Enemy is 3x faster - attacks twice before player can respond
+                battle_log.append({
+                    "type": "speed_advantage",
+                    "description": f"⚡ {enemy.name}'s blinding speed allows it to strike twice before you can react!"
+                })
+                
+                # First enemy attack
+                self._execute_enemy_attack(player, enemy, battle_log)
+                
+                # Check if player is still alive for second attack
+                if player.is_alive():
+                    # Second enemy attack
+                    self._execute_enemy_attack(player, enemy, battle_log)
+                    
+                    # Player gets one attack if still alive
+                    if player.is_alive():
+                        damage = self._execute_player_attack(player, enemy, battle_log)
+                        
+            elif player_goes_first:
+                # Normal speed - player attacks first
+                damage = self._execute_player_attack(player, enemy, battle_log)
+                
+                # Check if enemy is defeated
+                if enemy.is_alive():
+                    # Enemy attacks second (if still alive)
+                    self._execute_enemy_attack(player, enemy, battle_log)
+            else:
+                # Normal speed - enemy attacks first
+                self._execute_enemy_attack(player, enemy, battle_log)
+                
+                # Check if player is still alive for their attack
+                if player.is_alive():
+                    # Player attacks second (if still alive)
+                    damage = self._execute_player_attack(player, enemy, battle_log)
         
-        # Check if enemy is defeated
+        # Check if enemy is defeated after all attacks
         if not enemy.is_alive():
             reward = self._handle_enemy_defeat(player, enemy)
             
@@ -240,7 +332,8 @@ class CombatController:
                     "in_battle": player.in_battle,
                     "is_alive": player.is_alive(),
                     "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                    "ally_used": player.ally_used
+                    "ally_used": player.ally_used,
+                    "ailments": [ailment.to_dict() for ailment in player.ailments]
                 },
                 "enemy": enemy.to_dict()
             }
@@ -255,17 +348,13 @@ class CombatController:
             
             return create_success_response(response_data, "Enemy defeated!")
         
-        # Enemy counterattack
-        self._execute_enemy_attack(player, enemy, battle_log)
-        
-        print(f"DEBUG COMBAT TURN END: After enemy attack, player has {len(player.allies)} allies")
-        print(f"DEBUG COMBAT TURN END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
-        
         # Update stored enemy data
         player.current_enemy = enemy.to_dict()
         
-        # Check if player is defeated
+        # Check if player is defeated after all attacks
         if not player.is_alive():
+            # Get proper defeat result with custom death message
+            defeat_result = self._handle_player_defeat(player, enemy)
             player.end_battle()
             
             return create_success_response({
@@ -279,10 +368,12 @@ class CombatController:
                     "in_battle": player.in_battle,
                     "is_alive": player.is_alive(),
                     "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                    "ally_used": player.ally_used
+                    "ally_used": player.ally_used,
+                    "ailments": [ailment.to_dict() for ailment in player.ailments]
                 },
-                "enemy": enemy.to_dict()
-            }, "Player defeated!")
+                "enemy": enemy.to_dict(),
+                "defeat_result": defeat_result
+            }, defeat_result.get('message', 'Player defeated!'))
         
         return create_success_response({
             "messages": battle_log,
@@ -294,7 +385,8 @@ class CombatController:
                 "in_battle": player.in_battle,
                 "is_alive": player.is_alive(),
                 "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                "ally_used": player.ally_used
+                "ally_used": player.ally_used,
+                "ailments": [ailment.to_dict() for ailment in player.ailments]
             },
             "enemy": enemy.to_dict(),
             "ally_available": player.current_ally and not player.ally_used
@@ -302,7 +394,7 @@ class CombatController:
     
     def execute_flee(self, player: Player) -> Dict[str, Any]:
         """
-        Execute fleeing from battle.
+        Execute fleeing from battle using speed-based formula.
         
         Args:
             player (Player): Player object
@@ -313,37 +405,30 @@ class CombatController:
         if not player.in_battle:
             return create_error_response("Player is not in battle!")
         
-        # Get room information before fleeing
+        # Reconstruct enemy from player's current_enemy data
+        if not player.current_enemy:
+            return create_error_response("No enemy data found!")
+        
+        enemy = Enemy.from_dict(player.current_enemy)
+        
+        # Get room information
         room_data = player.battle_room
         room = Room.from_dict(room_data) if room_data else None
         
-        gold_lost = player.flee_battle()
+        # Use the new speed-based flee system
+        success, result = self.flee_from_combat(player, enemy)
         
-        response_data = {
-            "messages": [f"You fled from battle and lost {gold_lost} gold!"],
-            "gold_lost": gold_lost,
-            "battle_ended": True,
-            "fled": True,
-            "player": {
-                "health": f"{player.health}/{player.max_health}",
-                "gold": player.gold,
-                "level": player.level,
-                "in_battle": player.in_battle,
-                "is_alive": player.is_alive(),
-                "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
-                "ally_used": player.ally_used
-            }
-        }
+        # Add room direction info after fleeing (only if successful)
+        if success and room:
+            result_data = result.get('data', {})
+            if result_data:
+                result_data["room_info"] = {
+                    "current_room": room.get_room_info(),
+                    "available_directions": room.get_available_directions(),
+                    "message": "You escaped! You can now explore the room or move to safety."
+                }
         
-        # Add room direction info after fleeing
-        if room:
-            response_data["room_info"] = {
-                "current_room": room.get_room_info(),
-                "available_directions": room.get_available_directions(),
-                "message": "You escaped! You can now explore the room or move to safety."
-            }
-        
-        return create_success_response(response_data, "Fled from battle")
+        return result
     
     def _generate_ai_battle_description(self, player: Player, enemy: Enemy, room: Room) -> str:
         """
@@ -359,17 +444,15 @@ class CombatController:
         """
         if self.openai_client:
             try:
-                prompt = f"""You are narrating a whimsical fantasy battle in a cursed office building!
+                prompt = f"""Battle starting in cursed office building!
 
-An evil wizard turned Rocket Software into a monster-filled labyrinth. Employees fight back with fantasy powers!
-
-Player: {player.name} (HP: {player.health})
+Player: {player.name} (HP:{player.health})
 Enemy: {enemy.name} - {enemy.description}
 Location: {room.name}
 
-Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). Be fantastical, slightly funny, and whimsical. Keep it brief!"""
+Write 1-2 dramatic sentences (MAX 200 chars) setting the scene. Make it tense and atmospheric, fitting the office-fantasy theme."""
 
-                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.8, generation_type="battle_description")
+                description = self.openai_client.generate_completion(prompt, max_tokens=60, temperature=0.7, generation_type="battle_description")
                 if description and len(description) <= 250:
                     return description[:250]  # Enforce limit
             except Exception as e:
@@ -394,16 +477,14 @@ Describe the battle starting in 1-2 SHORT sentences (MAX 200 characters total). 
         """
         if self.openai_client:
             try:
-                attacker_type = "office warrior" if is_player else "cursed office creature"
-                prompt = f"""CRITICAL HIT in the cursed Rocket Software building!
+                attacker_type = "office warrior" if is_player else "cursed creature"
+                prompt = f"""CRITICAL HIT in the cursed office!
 
 {attacker_name} ({attacker_type}) lands a devastating blow on {target_name} for {damage} damage!
 
-Write a SHORT, exciting critical hit description (MAX 150 characters). Be whimsical, slightly funny, and fantastical. Explain what made this hit so perfect!
+Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, fitting the office-fantasy setting."""
 
-Keep it BRIEF and punchy!"""
-
-                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.9, generation_type="critical_hit")
+                description = self.openai_client.generate_completion(prompt, max_tokens=40, temperature=0.75, generation_type="critical_hit")
                 if description and len(description) <= 200:
                     return description[:200]  # Enforce limit
             except Exception as e:
@@ -421,12 +502,12 @@ Keep it BRIEF and punchy!"""
     
     def _check_critical_hit(self) -> bool:
         """
-        Check if an attack is a critical hit (10% chance).
+        Check if an attack is a critical hit (2% chance).
         
         Returns:
             bool: True if critical hit
         """
-        return random.random() < 0.10  # 10% critical hit chance
+        return random.random() < 0.02  # 2% critical hit chance
     
     def _execute_ally_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
@@ -472,9 +553,23 @@ Keep it BRIEF and punchy!"""
             
             # Add some variance
             damage_dealt = calculate_damage_with_variance(damage_dealt)
+            
+            # Apply elemental effectiveness if ally has an element
+            ally_element = ally_data.get('element')
+            enemy_element = getattr(enemy, 'element', 'intern')
+            element_multiplier = 1.0
+            element_desc = ""
+            
+            if ally_element:
+                element_multiplier = get_element_effectiveness(ally_element, enemy_element)
+                damage_dealt = int(damage_dealt * element_multiplier)
+                element_desc = get_element_matchup_text(ally_element, enemy_element)
+                if element_desc:
+                    element_desc = f" {element_desc}"
+            
             enemy.take_damage(damage_dealt)
             
-            description = f"{ally_data['description']} {ally_name} deals {damage_dealt} damage! {leaving_message}"
+            description = f"{ally_data['description']} {ally_name} deals {damage_dealt} damage!{element_desc} {leaving_message}"
             
             battle_log.append({
                 "type": "ally_attack",
@@ -482,12 +577,13 @@ Keep it BRIEF and punchy!"""
                 "target": enemy.name,
                 "damage": damage_dealt,
                 "is_critical": False,
+                "element_multiplier": element_multiplier,
                 "description": description
             })
             
         elif ally_type == 'skipper':
-            # Skip enemy's next turn
-            enemy.skip_next_turn = True  # We'll need to add this flag to Enemy model
+            # Skip enemy's next 2 turns (this turn + next turn)
+            enemy.skip_next_turn = 2
             
             description = f"{ally_data['description']} The enemy is stunned and will skip their next turn! {leaving_message}"
             
@@ -499,6 +595,156 @@ Keep it BRIEF and punchy!"""
             })
         
         return damage_dealt
+    
+    def _process_ailments_start_of_turn(self, entity, entity_name: str, battle_log: list):
+        """
+        Process ailments at the start of an entity's turn.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return
+        
+        # Process each active ailment
+        for ailment in entity.ailments:
+            # Apply poison damage
+            if ailment.ailment_type == 'poison':
+                damage = ailment.apply_poison_damage(entity.max_health)
+                entity.health = max(0, entity.health - damage)
+                
+                battle_log.append({
+                    "type": "ailment_damage",
+                    "target": entity_name,
+                    "ailment": "poison",
+                    "damage": damage,
+                    "description": f"{ailment.get_emoji()} {entity_name} takes {damage} poison damage! (Turns left: {ailment.turns_remaining})"
+                })
+    
+    def _check_paralysis(self, entity, entity_name: str, battle_log: list) -> bool:
+        """
+        Check if entity is paralyzed and should skip turn.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            bool: True if entity should skip turn
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return False
+        
+        for ailment in entity.ailments:
+            if ailment.ailment_type == 'paralysis':
+                if ailment.check_paralysis():
+                    battle_log.append({
+                        "type": "ailment_skip",
+                        "target": entity_name,
+                        "ailment": "paralysis",
+                        "description": f"{ailment.get_emoji()} {entity_name} is paralyzed and cannot move!"
+                    })
+                    return True
+        
+        return False
+    
+    def _check_blindness(self, entity, entity_name: str, battle_log: list) -> bool:
+        """
+        Check if entity is blinded and misses their attack.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+            
+        Returns:
+            bool: True if attack should miss
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return False
+        
+        for ailment in entity.ailments:
+            if ailment.ailment_type == 'blinded':
+                if ailment.check_blind_miss():
+                    battle_log.append({
+                        "type": "ailment_miss",
+                        "target": entity_name,
+                        "ailment": "blinded",
+                        "description": f"{ailment.get_emoji()} {entity_name} is blinded and misses their attack!"
+                    })
+                    return True
+        
+        return False
+    
+    def _get_effective_stat(self, entity, stat_name: str, base_value: int) -> int:
+        """
+        Get the effective stat value after applying ailment reductions.
+        
+        Args:
+            entity: Player or Enemy object
+            stat_name (str): Stat type ('attack_power', 'defense', 'speed')
+            base_value (int): Base stat value
+            
+        Returns:
+            int: Effective stat value after reductions
+        """
+        if not hasattr(entity, 'ailments') or not entity.ailments:
+            return base_value
+        
+        multiplier = 1.0
+        
+        for ailment in entity.ailments:
+            if stat_name == 'attack_power' and ailment.ailment_type == 'weakened':
+                multiplier *= ailment.get_stat_reduction_percentage('weakened')
+            elif stat_name == 'defense' and ailment.ailment_type == 'irradiated':
+                multiplier *= ailment.get_stat_reduction_percentage('irradiated')
+            elif stat_name == 'speed' and ailment.ailment_type == 'shackled':
+                multiplier *= ailment.get_stat_reduction_percentage('shackled')
+        
+        return int(base_value * multiplier)
+    
+    def _can_use_allies(self, player) -> bool:
+        """
+        Check if player can use allies (not infatuated).
+        
+        Args:
+            player: Player object
+            
+        Returns:
+            bool: True if player can use allies
+        """
+        if not hasattr(player, 'ailments') or not player.ailments:
+            return True
+        
+        for ailment in player.ailments:
+            if ailment.prevents_ally_use():
+                return False
+        
+        return True
+    
+    def _tick_ailments_end_of_turn(self, entity, entity_name: str, battle_log: list):
+        """
+        Tick down ailments at end of turn and remove expired ones.
+        
+        Args:
+            entity: Player or Enemy object
+            entity_name (str): Name for display
+            battle_log (list): Battle log to append to
+        """
+        if not hasattr(entity, 'ailments'):
+            return
+        
+        expired = entity.tick_ailments()
+        for ailment in expired:
+            battle_log.append({
+                "type": "ailment_expired",
+                "target": entity_name,
+                "ailment": ailment.ailment_type,
+                "description": f"{entity_name}'s {ailment.get_name()} has worn off."
+            })
     
     def _execute_player_attack(self, player: Player, enemy: Enemy, battle_log: list) -> int:
         """
@@ -512,18 +758,71 @@ Keep it BRIEF and punchy!"""
         Returns:
             int: Damage dealt
         """
+        # Process player ailments at start of turn
+        self._process_ailments_start_of_turn(player, player.name, battle_log)
+        
+        # Check if player dies from poison
+        if not player.is_alive():
+            return 0
+        
+        # Check if player is paralyzed
+        if self._check_paralysis(player, player.name, battle_log):
+            # Tick ailments even if paralyzed
+            self._tick_ailments_end_of_turn(player, player.name, battle_log)
+            return 0
+        
+        # Check if player is blinded and misses
+        if self._check_blindness(player, player.name, battle_log):
+            # Tick ailments even if missed
+            self._tick_ailments_end_of_turn(player, player.name, battle_log)
+            return 0
+        
         # Check for critical hit
         is_critical = self._check_critical_hit()
-        base_damage = player.attack_power
+        
+        # Get effective attack power (after weakened reduction)
+        effective_attack = self._get_effective_stat(player, 'attack_power', player.attack_power)
+        base_damage = effective_attack
         
         if is_critical:
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
         
         damage = calculate_damage_with_variance(base_damage)
+        
+        # Apply timing multiplier if present
+        timing_multiplier = getattr(self, 'timing_multiplier', None)
+        if timing_multiplier is not None:
+            damage = int(damage * timing_multiplier)
+            print(f"DEBUG COMBAT: Applied timing multiplier {timing_multiplier}x, damage after timing: {damage}")
+        
+        # Apply elemental effectiveness
+        player_element = getattr(player, 'element', 'intern')
+        enemy_element = getattr(enemy, 'element', 'intern')
+        element_multiplier = get_element_effectiveness(player_element, enemy_element)
+        
+        if element_multiplier != 1.0:
+            damage = int(damage * element_multiplier)
+            print(f"DEBUG COMBAT: Applied element multiplier {element_multiplier}x ({player_element} vs {enemy_element}), final damage: {damage}")
+        
         enemy.take_damage(damage)
         
         # Generate description
-        base_description = f"{player.name} attacks {enemy.name} for {damage} damage!"
+        timing_desc = ""
+        if timing_multiplier is not None:
+            if timing_multiplier >= 1.15:
+                timing_desc = " **PERFECT TIMING!**"
+            elif timing_multiplier >= 1.0:
+                timing_desc = " *Good timing.*"
+            elif timing_multiplier >= 0.9:
+                timing_desc = " *Slightly off.*"
+            else:
+                timing_desc = " *Poorly timed.*"
+        
+        element_desc = get_element_matchup_text(player_element, enemy_element) or ""
+        if element_desc:
+            element_desc = " " + element_desc
+        
+        base_description = f"{player.name} attacks {enemy.name} for {damage} damage!{timing_desc}{element_desc}"
         if is_critical:
             crit_desc = self._generate_critical_hit_description(player.name, enemy.name, damage, True)
             description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
@@ -536,8 +835,17 @@ Keep it BRIEF and punchy!"""
             "target": enemy.name,
             "damage": damage,
             "is_critical": is_critical,
+            "timing_multiplier": timing_multiplier,
+            "element_multiplier": element_multiplier,
             "description": description
         })
+        
+        # Clear timing multiplier after use
+        if hasattr(self, 'timing_multiplier'):
+            delattr(self, 'timing_multiplier')
+        
+        # Tick ailments at end of turn
+        self._tick_ailments_end_of_turn(player, player.name, battle_log)
         
         return damage
     
@@ -553,9 +861,28 @@ Keep it BRIEF and punchy!"""
         Returns:
             int: Damage dealt
         """
-        # Check if enemy should skip this turn
+        # Process enemy ailments at start of turn
+        self._process_ailments_start_of_turn(enemy, enemy.name, battle_log)
+        
+        # Check if enemy dies from poison
+        if not enemy.is_alive():
+            return 0
+        
+        # Check if enemy is paralyzed
+        if self._check_paralysis(enemy, enemy.name, battle_log):
+            # Tick ailments even if paralyzed
+            self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
+            return 0
+        
+        # Check if enemy should skip this turn (from skipper ally)
         if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn:
-            enemy.skip_next_turn = False  # Reset the flag
+            if isinstance(enemy.skip_next_turn, int):
+                # Decrement the counter
+                enemy.skip_next_turn -= 1
+            else:
+                # Legacy boolean support - convert to counter
+                enemy.skip_next_turn = 0
+            
             battle_log.append({
                 "type": "enemy_skip",
                 "attacker": enemy.name,
@@ -563,18 +890,38 @@ Keep it BRIEF and punchy!"""
             })
             return 0
         
+        # Check if enemy is blinded and misses
+        if self._check_blindness(enemy, enemy.name, battle_log):
+            # Tick ailments even if missed
+            self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
+            return 0
+        
         # Check for critical hit
         is_critical = self._check_critical_hit()
-        base_damage = enemy.attack_power
+        
+        # Get effective attack power (after weakened reduction)
+        effective_attack = self._get_effective_stat(enemy, 'attack_power', enemy.attack_power)
+        base_damage = effective_attack
         
         if is_critical:
             base_damage = int(base_damage * 1.5)  # 50% bonus for critical
         
         damage = calculate_damage_with_variance(base_damage)
+        
+        # Apply elemental effectiveness (enemy attacking player)
+        enemy_element = getattr(enemy, 'element', 'intern')
+        player_element = getattr(player, 'element', 'intern')
+        element_multiplier = get_element_effectiveness(enemy_element, player_element)
+        damage = int(damage * element_multiplier)
+        
         player.take_damage(damage)
         
-        # Generate description
+        # Generate description with elemental effectiveness
         base_description = f"{enemy.name} attacks {player.name} for {damage} damage!"
+        element_desc = get_element_matchup_text(enemy_element, player_element)
+        if element_desc:
+            base_description += f" {element_desc}"
+        
         if is_critical:
             crit_desc = self._generate_critical_hit_description(enemy.name, player.name, damage, False)
             description = f"{base_description} **CRITICAL HIT!** {crit_desc}"
@@ -587,8 +934,57 @@ Keep it BRIEF and punchy!"""
             "target": player.name,
             "damage": damage,
             "is_critical": is_critical,
+            "element_multiplier": element_multiplier,
             "description": description
         })
+        
+        # Try to inflict ailments if enemy has that ability
+        # Support both old single type and new multiple types for backward compatibility
+        ailment_types_to_try = []
+        if hasattr(enemy, 'ailment_inflict_types') and enemy.ailment_inflict_types:
+            ailment_types_to_try = enemy.ailment_inflict_types
+        elif hasattr(enemy, 'ailment_inflict_type') and enemy.ailment_inflict_type:
+            # Backward compatibility
+            ailment_types_to_try = [enemy.ailment_inflict_type]
+        
+        if ailment_types_to_try and hasattr(enemy, 'ailment_inflict_chance') and enemy.ailment_inflict_chance > 0:
+            import random
+            from ..models.ailment import Ailment, calculate_ailment_severity, calculate_ailment_duration
+            
+            # ailment_inflict_chance is stored as a decimal (0.0 to 1.0)
+            # Convert to percentage for random check
+            chance_percentage = enemy.ailment_inflict_chance * 100
+            
+            for ailment_type in ailment_types_to_try:
+                print(f"DEBUG: Enemy {enemy.name} trying to inflict {ailment_type} - chance={enemy.ailment_inflict_chance} ({chance_percentage}%)")
+                
+                if random.randint(1, 100) <= chance_percentage:
+                    # Use custom severity if set, otherwise calculate based on floor
+                    if hasattr(enemy, 'ailment_inflict_severity') and enemy.ailment_inflict_severity is not None:
+                        severity = max(0, min(5, enemy.ailment_inflict_severity))  # Clamp to 0-5
+                    else:
+                        severity = calculate_ailment_severity(enemy.floor)
+                    
+                    duration = calculate_ailment_duration(severity)
+                    ailment = Ailment(ailment_type, severity, duration)
+                    player.add_ailment(ailment)
+                    
+                    print(f"DEBUG: ✅ Enemy {enemy.name} successfully inflicted {ailment_type} on player! (Severity {severity})")
+                    
+                    battle_log.append({
+                        "type": "enemy_ailment_inflict",
+                        "attacker": enemy.name,
+                        "target": player.name,
+                        "ailment": ailment_type,
+                        "severity": severity,
+                        "description": f"{ailment.get_emoji()} {enemy.name} inflicts {ailment.get_name()} on {player.name}! (Severity {severity})"
+                    })
+                else:
+                    print(f"DEBUG: ❌ Enemy {enemy.name} failed to inflict {ailment_type}")
+        
+        
+        # Tick ailments at end of turn
+        self._tick_ailments_end_of_turn(enemy, enemy.name, battle_log)
         
         return damage
     
@@ -701,6 +1097,10 @@ Keep it BRIEF and punchy!"""
         Returns:
             Tuple[bool, Dict[str, Any]]: (Success, Result information)
         """
+        # Check if player is infatuated and cannot use allies
+        if not self._can_use_allies(player):
+            return False, create_error_response("💖 You are infatuated and cannot use allies!")
+        
         if ally_index < 0 or ally_index >= len(player.allies):
             return False, create_error_response("Invalid ally selection.")
         
@@ -744,15 +1144,38 @@ Keep it BRIEF and punchy!"""
         gold_lost = min(player.gold // 4, 50)  # Lose 25% of gold, max 50
         player.gold = max(0, player.gold - gold_lost)
         
-        # Reset player health to 1 (don't permanently kill them)
-        player.health = 1
+        # Mark player as dead (health = 0) for game over screen
+        player.health = 0
+        
+        # Generate custom death message using LLM
+        death_message = f"You have been defeated by {enemy.name}! You lost {gold_lost} gold."
+        
+        if self.openai_client:
+            try:
+                prompt = f"""Player defeated and killed in cursed office dungeon!
+
+Defeated by: {enemy.name} - {enemy.description}
+
+Write a dramatic death message (1-2 sentences). The player was KILLED and DIED - they lost {gold_lost} gold. Make it dark and final. Fit the office-fantasy setting. DO NOT mention surviving or escaping."""
+                
+                custom_message = self.openai_client.generate_completion(
+                    prompt, 
+                    max_tokens=80, 
+                    temperature=0.75, 
+                    generation_type="death_message"
+                )
+                
+                if custom_message and len(custom_message.strip()) > 10:
+                    death_message = custom_message.strip()
+            except Exception as e:
+                print(f"Failed to generate custom death message: {e}")
         
         return {
             "outcome": "defeat",
             "gold_lost": gold_lost,
             "remaining_gold": player.gold,
             "health_restored": 1,
-            "message": f"You have been defeated by {enemy.name}! You lost {gold_lost} gold but managed to escape with your life."
+            "message": death_message
         }
     
     def _handle_enemy_defeat(self, player: Player, enemy: Enemy) -> Dict[str, Any]:
@@ -856,22 +1279,117 @@ Keep it BRIEF and punchy!"""
         Returns:
             Tuple[bool, Dict[str, Any]]: (Success, Result information)
         """
-        # Base flee chance is 70%, modified by player health
-        health_ratio = player.health / player.max_health
-        flee_chance = 0.5 + (health_ratio * 0.3)  # 50-80% based on health
+        # Calculate flee chance based on formula:
+        # 50% + 3.5*(player_speed - enemy_speed) - floor(current_floor_number/5)
+        import math
+        import random
         
-        if random.random() < flee_chance:
-            # Successful flee
+        # Check if enemy has skip_next_turn active (from skipper ally)
+        # If enemy is skipped, fleeing is guaranteed with no cost
+        if hasattr(enemy, 'skip_next_turn') and enemy.skip_next_turn > 0:
+            print(f"DEBUG FLEE: Enemy turn is skipped by ally! Guaranteed escape with no cost.")
+            
+            # End the battle without losing gold or taking damage
+            player.end_battle()
+            
             return True, create_success_response({
                 "outcome": "fled",
-                "message": "You successfully fled from combat!"
+                "message": "With the enemy distracted by your ally, you slip away unnoticed! No gold lost.",
+                "gold_lost": 0,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                }
+            })
+        
+        speed_difference = player.speed - enemy.speed
+        floor_penalty = math.floor(player.floor / 5)
+        
+        # Calculate components (using percentages as decimals)
+        base_chance = 0.50  # 50%
+        speed_modifier = speed_difference * 0.035  # 3.5% per speed difference
+        floor_modifier = floor_penalty * 0.01  # 1% per 5 floors
+        
+        flee_chance = base_chance + speed_modifier - floor_modifier
+        
+        # Clamp flee chance between 10% and 95%
+        flee_chance_unclamped = flee_chance
+        flee_chance = max(0.10, min(0.95, flee_chance))
+        
+        # Generate random roll
+        random_roll = random.random()
+        
+        print(f"DEBUG FLEE: Player speed: {player.speed}, Enemy speed: {enemy.speed}")
+        print(f"DEBUG FLEE: Speed diff: {speed_difference}, Floor: {player.floor}, Floor penalty: {floor_penalty}")
+        print(f"DEBUG FLEE: Base: {base_chance*100:.1f}%, Speed mod: {speed_modifier*100:.1f}%, Floor mod: -{floor_modifier*100:.1f}%")
+        print(f"DEBUG FLEE: Calculated chance: {flee_chance_unclamped*100:.1f}% -> Clamped: {flee_chance*100:.1f}%")
+        print(f"DEBUG FLEE: Random roll: {random_roll:.4f}, Success threshold: {flee_chance:.4f}")
+        print(f"DEBUG FLEE: Result: {'SUCCESS' if random_roll < flee_chance else 'FAILURE'}")
+        
+        if random_roll < flee_chance:
+            # Successful flee - lose half of current gold
+            gold_lost = player.gold // 2
+            player.gold -= gold_lost
+            
+            # End the battle
+            player.end_battle()
+            
+            return True, create_success_response({
+                "outcome": "fled",
+                "message": f"You successfully fled from combat! You lost {gold_lost} gold in your hasty retreat.",
+                "gold_lost": gold_lost,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                }
             })
         else:
-            # Failed flee - enemy gets a free attack
-            damage = self._calculate_enemy_damage(enemy)
-            player.take_damage(damage)
+            # Failed flee - enemy gets a free attack (bypasses defense)
+            base_damage = enemy.attack()
+            # Apply damage directly without defense reduction (player is caught off-guard)
+            player.health = max(0, player.health - base_damage)
             
-            return False, create_error_response(
-                f"Failed to flee! {enemy.name} attacks you for {damage} damage as you try to escape. "
-                f"You have {player.health} health remaining."
-            )
+            message = (f"Failed to flee! {enemy.name} catches you off-guard and attacks for {base_damage} damage! "
+                      f"You have {player.health} health remaining.")
+            
+            # Check if player died from the flee attempt
+            if not player.is_alive():
+                player.end_battle()
+                return False, create_success_response({
+                    "messages": [message, "You have been defeated!"],
+                    "battle_ended": True,
+                    "fled": False,
+                    "victory": False,
+                    "player": {
+                        "health": f"{player.health}/{player.max_health}",
+                        "gold": player.gold,
+                        "level": player.level,
+                        "in_battle": player.in_battle,
+                        "is_alive": player.is_alive(),
+                        "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies]
+                    },
+                    "enemy": enemy.to_dict()
+                }, "Player defeated while fleeing!")
+            
+            # Return updated player state on failed flee (battle continues)
+            return False, create_success_response({
+                "messages": [message],
+                "battle_ended": False,
+                "fled": False,
+                "player": {
+                    "health": f"{player.health}/{player.max_health}",
+                    "gold": player.gold,
+                    "level": player.level,
+                    "in_battle": player.in_battle,
+                    "is_alive": player.is_alive(),
+                    "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                    "ally_used": player.ally_used
+                },
+                "enemy": enemy.to_dict()
+            }, "Failed to flee!")

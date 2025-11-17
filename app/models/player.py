@@ -19,11 +19,13 @@ class Player:
         self.gold = 0
         self.attack_power = 10
         self.defense = 5
+        self.speed = 10  # Speed stat for turn order and flee chance
         self.floor = 1
         self.room_id = "start"
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
         self.inventory = []  # List of item objects
+        self.element = "intern"  # Office department element (starts as intern)
         
         # Experience system
         self.experience = 0
@@ -37,6 +39,13 @@ class Player:
         self.battle_room = None  # Room data where battle is taking place
         self.temp_attack_boost = 0  # Temporary attack boost from items
         self.temp_defense_boost = 0  # Temporary defense boost from items
+        
+        # Minimap data
+        self.room_positions = {}  # Track room positions: { roomId: {x, y} }
+        self.room_info = {}  # Track room features: { roomId: {hasStairs, isShop} }
+        
+        # Ailments
+        self.ailments = []  # List of active ailments
         
     def take_damage(self, damage: int) -> bool:
         """
@@ -73,11 +82,56 @@ class Player:
     def add_ally(self, ally):
         """
         Add an ally to the player's party.
+        Max 4 allies, no duplicates by name.
         
         Args:
             ally: Ally object to add
+            
+        Returns:
+            dict: Result with success status and message
         """
+        # Check if ally already exists
+        for existing_ally in self.allies:
+            if existing_ally.name == ally.name:
+                return {
+                    "success": False,
+                    "message": f"{ally.name} is already in your party!"
+                }
+        
+        # Check if at max capacity
+        if len(self.allies) >= 4:
+            return {
+                "success": False,
+                "message": "Your party is full! (Max 4 allies) Fire an ally to make room.",
+                "at_capacity": True
+            }
+        
         self.allies.append(ally)
+        return {
+            "success": True,
+            "message": f"{ally.name} joined your party!"
+        }
+    
+    def remove_ally(self, ally_index: int):
+        """
+        Remove an ally from the player's party (fire them).
+        
+        Args:
+            ally_index (int): Index of the ally to remove
+            
+        Returns:
+            dict: Result with success status and message
+        """
+        if 0 <= ally_index < len(self.allies):
+            ally = self.allies.pop(ally_index)
+            return {
+                "success": True,
+                "message": f"{ally.name} has been fired and left the party."
+            }
+        return {
+            "success": False,
+            "message": "Invalid ally index."
+        }
     
     def add_item(self, item):
         """
@@ -194,6 +248,16 @@ class Player:
         self.battle_room = None
         self.current_ally = None
         self.ally_used = False
+        
+        # Reset all allies' "used" flag so they can be used in next battle
+        for ally in self.allies:
+            ally.used = False
+        
+        # Remove allies with no uses remaining
+        self.allies = [ally for ally in self.allies if ally.uses_remaining > 0]
+        
+        # Clear ailments at end of battle
+        self.clear_ailments()
     
     def flee_battle(self) -> int:
         """
@@ -249,6 +313,7 @@ class Player:
         self.max_health += 5  # +5 max health per level
         self.attack_power += 2  # +2 attack per level
         self.defense += 1  # +1 defense per level
+        self.speed += 1  # +1 speed per level
         
         # Heal player to full on level up
         health_increase = self.max_health - old_max_health
@@ -278,6 +343,68 @@ class Player:
             'progress_percentage': round((progress / needed) * 100, 1) if needed > 0 else 100
         }
     
+    def add_ailment(self, ailment):
+        """
+        Add an ailment to the player.
+        
+        Args:
+            ailment: Ailment object to add
+        """
+        # Check if player already has this type of ailment
+        for existing in self.ailments:
+            if existing.ailment_type == ailment.ailment_type:
+                # Replace with new one if severity is higher
+                if ailment.severity > existing.severity:
+                    self.ailments.remove(existing)
+                    self.ailments.append(ailment)
+                return
+        
+        # Add new ailment
+        self.ailments.append(ailment)
+    
+    def remove_ailment(self, ailment_type: str):
+        """
+        Remove an ailment by type.
+        
+        Args:
+            ailment_type (str): Type of ailment to remove
+        """
+        self.ailments = [a for a in self.ailments if a.ailment_type != ailment_type]
+    
+    def clear_ailments(self):
+        """Clear all ailments."""
+        self.ailments = []
+    
+    def tick_ailments(self) -> list:
+        """
+        Update ailments, removing expired ones.
+        
+        Returns:
+            list: List of ailments that expired this turn
+        """
+        expired = []
+        still_active = []
+        
+        for ailment in self.ailments:
+            if not ailment.tick_duration():
+                expired.append(ailment)
+            else:
+                still_active.append(ailment)
+        
+        self.ailments = still_active
+        return expired
+    
+    def get_ailment_display(self) -> str:
+        """
+        Get emoji display string for active ailments.
+        
+        Returns:
+            str: Emoji string for ailments
+        """
+        if not self.ailments:
+            return ""
+        return " ".join([a.get_emoji() for a in self.ailments])
+    
     def to_dict(self) -> dict:
         """
         Convert player to dictionary for JSON serialization.
@@ -293,6 +420,7 @@ class Player:
             "gold": self.gold,
             "attack_power": self.attack_power,
             "defense": self.defense,
+            "speed": self.speed,
             "floor": self.floor,
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
@@ -300,13 +428,17 @@ class Player:
             "inventory": [item.to_dict() for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
+            "element": self.element,
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
             "ally_used": self.ally_used,
             "battle_room": self.battle_room,
             "temp_attack_boost": self.temp_attack_boost,
-            "temp_defense_boost": self.temp_defense_boost
+            "temp_defense_boost": self.temp_defense_boost,
+            "room_positions": self.room_positions,
+            "room_info": self.room_info,
+            "ailments": [ailment.to_dict() for ailment in self.ailments]
         }
     
     @classmethod
@@ -329,6 +461,8 @@ class Player:
         player.gold = data["gold"]
         player.attack_power = data["attack_power"]
         player.defense = data["defense"]
+        player.speed = data.get("speed", 10)  # Default to 10 for backward compatibility
+        player.element = data.get("element", "intern")  # Default to intern for backward compatibility
         player.floor = data["floor"]
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])
@@ -347,5 +481,13 @@ class Player:
         player.battle_room = data.get("battle_room", None)
         player.temp_attack_boost = data.get("temp_attack_boost", 0)
         player.temp_defense_boost = data.get("temp_defense_boost", 0)
+        
+        # Minimap data (with defaults for backward compatibility)
+        player.room_positions = data.get("room_positions", {})
+        player.room_info = data.get("room_info", {})
+        
+        # Ailments (with defaults for backward compatibility)
+        from .ailment import Ailment
+        player.ailments = [Ailment.from_dict(ailment_data) for ailment_data in data.get("ailments", [])]
         
         return player

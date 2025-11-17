@@ -14,6 +14,10 @@ from .utils import UserDB, create_error_response, create_success_response, sanit
 # Create blueprint
 bp = Blueprint('api', __name__, url_prefix='/api')
 
+# Register sprite routes
+from .routes_sprites import register_sprite_routes
+register_sprite_routes(bp)
+
 # Initialize controllers (will be created per request to avoid state issues)
 def get_controllers():
     """Get fresh controller instances."""
@@ -110,6 +114,8 @@ def create_player():
                 'level': player.level,
                 'attack_power': player.attack_power,
                 'defense': player.defense,
+                'speed': player.speed,
+                'element': player.element,
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
@@ -298,13 +304,23 @@ def move_player():
             
             # Create Ally object and add to player's allies list
             ally = Ally.from_dict(ally_data)
-            player.add_ally(ally)
+            add_result = player.add_ally(ally)
             
             print(f"DEBUG ALLY RECRUIT: Player now has {len(player.allies)} allies after recruitment")
             print(f"DEBUG ALLY RECRUIT: Allies list: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
             
-            ally_result = {
-                'ally_found': True,
+            # Check if ally was successfully added
+            if not add_result.get('success', True):
+                ally_result = {
+                    'ally_found': True,
+                    'ally_recruited': False,
+                    'ally': ally_data,
+                    'message': add_result.get('message', 'Could not recruit ally'),
+                    'at_capacity': add_result.get('at_capacity', False)
+                }
+            else:
+                ally_result = {
+                    'ally_found': True,
                 'ally': ally.to_dict(),
                 'message': f"🤝 {ally.name} joins your party! Use them anytime in battle. ({ally.description})"
             }
@@ -320,6 +336,12 @@ def move_player():
             # Generate enemy for encounter
             enemy_content = controllers['generation'].generate_enemy_content(player.floor, new_room)
             enemy = Enemy.create_random_enemy(player.floor, enemy_content['name'], enemy_content['description'])
+            
+            # Check if enemy should have ailment ability
+            from app.models import should_enemy_have_ailment
+            has_ailment, ailment_type = should_enemy_have_ailment(enemy.name, enemy.description)
+            if has_ailment:
+                enemy.set_ailment_ability(ailment_type, player.floor)
             
             # Start turn-based battle (no ally passed - player chooses when to use)
             combat_result = controllers['combat'].start_battle(player, enemy, new_room, None)
@@ -356,6 +378,13 @@ def move_player():
         print(f"DEBUG MOVE END: Player has {len(player.allies)} allies before saving")
         print(f"DEBUG MOVE END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
         
+        # Update minimap data from frontend if provided
+        data = request.get_json() or {}
+        if 'room_positions' in data:
+            player.room_positions = data['room_positions']
+        if 'room_info' in data:
+            player.room_info = data['room_info']
+        
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
         
@@ -380,7 +409,10 @@ def move_player():
         if item_found:
             response_data['item_result'] = item_result
         
-        return create_success_response(response_data, "Movement completed")
+        # Use the message from movement_result (e.g., floor ascension message)
+        movement_message = movement_result.get('message', 'Movement completed')
+        
+        return create_success_response(response_data, movement_message)
         
     except Exception as e:
         return create_error_response(f"Error during movement: {str(e)}"), 500
@@ -395,7 +427,8 @@ def player_attack():
     {
         "session_id": "player-session-id",
         "action": "attack" | "flee",
-        "ally_index": 0 (optional, index of ally to use in attack)
+        "ally_index": 0 (optional, index of ally to use in attack),
+        "timing_multiplier": 1.0 (optional, damage multiplier from timing mini-game)
     }
     """
     try:
@@ -403,6 +436,7 @@ def player_attack():
         session_id = data.get('session_id')
         action = data.get('action')
         ally_index = data.get('ally_index')  # Optional: which ally to use
+        timing_multiplier = data.get('timing_multiplier')  # Optional: timing bonus
 
         if not session_id or not action:
             return create_error_response("Missing session_id or action"), 400
@@ -426,9 +460,9 @@ def player_attack():
         controllers = get_controllers()
         
         if action == "attack":
-            # Execute attack (with optional ally)
+            # Execute attack (with optional ally and timing multiplier)
             use_ally = ally_index is not None
-            attack_result = controllers['combat'].execute_attack(player, use_ally, ally_index)
+            attack_result = controllers['combat'].execute_attack(player, use_ally, ally_index, timing_multiplier)
         elif action == "flee":
             # Execute flee
             attack_result = controllers['combat'].execute_flee(player)
@@ -527,9 +561,13 @@ def flee_combat():
         player = Player.from_dict(player_data)
         enemy = Enemy.from_dict(enemy_data)
         
+        print(f"DEBUG ROUTES flee_combat: Called with player (speed={player.speed}) vs enemy (speed={enemy.speed})")
+        
         # Attempt to flee
         controllers = get_controllers()
         success, result = controllers['combat'].flee_from_combat(player, enemy)
+        
+        print(f"DEBUG ROUTES flee_combat: Result - success={success}")
         
         # Save updated player state (health might have changed)
         user_db.save_user(session_id, player.to_dict())
@@ -538,6 +576,63 @@ def flee_combat():
         
     except Exception as e:
         return create_error_response(f"Error fleeing combat: {str(e)}"), 500
+
+
+@bp.route('/player/fire-ally', methods=['POST'])
+def fire_ally():
+    """
+    Fire (remove) an ally from the player's party.
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        ally_index = data.get('ally_index')
+        
+        print(f"DEBUG fire_ally: Received request - session_id: {session_id}, ally_index: {ally_index}")
+        
+        if not session_id:
+            return create_error_response("Session ID is required"), 400
+        
+        if ally_index is None:
+            return create_error_response("Ally index is required"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        print(f"DEBUG fire_ally: Player has {len(player.allies)} allies before firing")
+        print(f"DEBUG fire_ally: Allies: {[ally.name for ally in player.allies]}")
+        
+        # Remove ally
+        result = player.remove_ally(ally_index)
+        
+        print(f"DEBUG fire_ally: Remove result: {result}")
+        print(f"DEBUG fire_ally: Player has {len(player.allies)} allies after firing")
+        print(f"DEBUG fire_ally: Allies: {[ally.name for ally in player.allies]}")
+        
+        # Save updated player state
+        user_db.save_user(session_id, player.to_dict())
+        
+        print(f"DEBUG fire_ally: Player state saved")
+        
+        if result.get('success'):
+            return create_success_response(
+                data={'allies': [ally.to_dict() for ally in player.allies]},
+                message=result.get('message')
+            )
+        else:
+            return create_error_response(result.get('message')), 400
+        
+    except Exception as e:
+        print(f"DEBUG fire_ally: Exception occurred: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return create_error_response(f"Error firing ally: {str(e)}"), 500
+
 
 
 @bp.route('/scores/highscores', methods=['GET'])
@@ -657,6 +752,76 @@ def delete_player():
         
     except Exception as e:
         return create_error_response(f"Error deleting player: {str(e)}"), 500
+
+
+@bp.route('/player/load', methods=['POST'])
+def load_player():
+    """
+    Load an existing player session with full game state.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        from app.models.request_models import PlayerSessionRequest
+        req = PlayerSessionRequest.parse_obj(request.get_json() or {})
+        if not req.session_id:
+            return create_error_response("Missing session_id"), 400
+
+        session_id = req.session_id
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        controllers = get_controllers()
+        
+        # Set the session for session-specific room management
+        controllers['movement'].set_session(player.session_id)
+        
+        # Get current room
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        response_data = {
+            'session_id': player.session_id,
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'floor': player.floor,
+                'room_id': player.room_id,
+                'level': player.level,
+                'attack_power': player.attack_power,
+                'defense': player.defense,
+                'speed': player.speed,
+                'element': player.element,
+                'max_health': player.max_health,
+                'visited_rooms': list(player.visited_rooms),
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                'allies_count': len(player.allies),
+                'inventory': [item.get_item_info() for item in player.inventory],
+                'is_alive': player.is_alive(),
+                'in_battle': player.in_battle,
+                'current_enemy': player.current_enemy,
+                'ally_used': player.ally_used if hasattr(player, 'ally_used') else False,
+                'battle_room': player.battle_room if hasattr(player, 'battle_room') else None,
+                'room_positions': player.room_positions if hasattr(player, 'room_positions') else {},
+                'room_info': player.room_info if hasattr(player, 'room_info') else {}
+            },
+            'current_room': current_room.get_room_info()
+        }
+        
+        return create_success_response(response_data, f"Welcome back, {player.name}!")
+        
+    except Exception as e:
+        return create_error_response(f"Error loading player: {str(e)}"), 500
 
 
 @bp.route('/player/heal', methods=['POST'])

@@ -23,6 +23,14 @@
                     <p>Enter your name to begin your journey into the abyss...</p>
                     <input type="text" id="player-name" placeholder="Enter your name" maxlength="30" />
                     <button id="start-game-btn" class="btn btn-primary">Begin Adventure</button>
+                    
+                    <div class="continue-game-section">
+                        <h3>Continue Existing Game</h3>
+                        <p>Enter your session ID to resume a previous game:</p>
+                        <input type="text" id="continue-session-id" placeholder="Enter Session ID" maxlength="50" />
+                        <button id="continue-game-btn" class="btn btn-secondary">Continue Game</button>
+                    </div>
+                    
                     <div class="start-info">
                         <h3>How to Play:</h3>
                         <ul>
@@ -44,7 +52,14 @@
                     <!-- Left Panel - Player Stats -->
                     <div class="left-panel">
                         <div class="player-info card">
-                            <h3>🧙 <span id="player-name-display">Adventurer</span></h3>
+                            <div class="player-header">
+                                <img id="player-avatar" class="player-avatar" src="" alt="Player Avatar" />
+                                <h3>
+                                    <span id="player-name-display">Adventurer</span> 
+                                    <span id="player-element" class="element-badge"></span>
+                                    <span id="player-ailments" class="ailments-display"></span>
+                                </h3>
+                            </div>
                             <div class="stat-row">
                                 <span class="stat-label">❤️ Health:</span>
                                 <div class="health-bar-container">
@@ -76,6 +91,10 @@
                                 <span class="stat-label">🛡️ Defense:</span>
                                 <span id="player-defense" class="stat-value">5</span>
                             </div>
+                            <div class="stat-row">
+                                <span class="stat-label">⚡ Speed:</span>
+                                <span id="player-speed" class="stat-value">10</span>
+                            </div>
                         </div>
 
                         <div class="allies-info card">
@@ -96,6 +115,7 @@
                             <button id="view-stats-btn" class="btn btn-info btn-full">📊 View Stats</button>
                             <button id="view-scores-btn" class="btn btn-info btn-full">🏆 Leaderboard</button>
                             <button id="submit-score-btn" class="btn btn-warning btn-full">📤 Submit Score</button>
+                            <button id="show-session-btn" class="btn btn-secondary btn-full">🔑 Show Session ID</button>
                             <button id="new-game-btn" class="btn btn-danger btn-full">🔄 New Game</button>
                         </div>
                     </div>
@@ -109,8 +129,32 @@
                             <div id="room-features" class="room-features"></div>
                             
                             <div id="combat-area" class="combat-area hidden">
+                                <div class="combat-sprites-row">
+                                    <div class="player-sprite-container" id="player-sprite-container">
+                                        <img id="player-sprite" class="player-sprite" src="" alt="Player" />
+                                    </div>
+                                    
+                                    <div class="ally-sprite-container hidden" id="ally-sprite-container">
+                                        <img id="ally-sprite" class="ally-sprite" src="" alt="Ally" />
+                                    </div>
+                                    
+                                    <div class="enemy-sprite-container">
+                                        <img id="enemy-sprite" class="enemy-sprite" src="" alt="Enemy" />
+                                    </div>
+                                </div>
+                                
                                 <div class="enemy-info">
-                                    <h3 id="enemy-name" class="enemy-name">Enemy</h3>
+                                    <h3 class="enemy-name">
+                                        <span id="enemy-name">Enemy</span>
+                                        <span id="enemy-element" class="element-badge"></span>
+                                        <span id="enemy-ailments" class="ailments-display"></span>
+                                        <span id="enemy-can-inflict" class="can-inflict-display" style="display: none;"></span>
+                                        <span id="combat-loading-indicator" class="combat-loading-indicator hidden">
+                                            <span class="loading-dot"></span>
+                                            <span class="loading-dot"></span>
+                                            <span class="loading-dot"></span>
+                                        </span>
+                                    </h3>
                                     <p id="enemy-description" class="enemy-description">A fearsome creature</p>
                                     <div class="enemy-stats">
                                         <div class="stat-row">
@@ -127,6 +171,10 @@
                                         <div class="stat-row">
                                             <span class="stat-label">🛡️ Defense:</span>
                                             <span id="enemy-defense" class="stat-value">3</span>
+                                        </div>
+                                        <div class="stat-row">
+                                            <span class="stat-label">⚡ Speed:</span>
+                                            <span id="enemy-speed" class="stat-value">10</span>
                                         </div>
                                     </div>
                                 </div>
@@ -205,6 +253,7 @@
             <div id="game-over-screen" class="screen">
                 <div class="game-over-content">
                     <h2 class="game-over-title">💀 YOU DIED 💀</h2>
+                    <p id="death-message" class="death-message"></p>
                     <div id="final-stats" class="final-stats">
                         <h3>Final Statistics</h3>
                         <div class="stat-row">
@@ -284,6 +333,59 @@
                 </div>
             </div>
 
+            <!-- Ally Detail Modal -->
+            <div id="ally-detail-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 id="ally-detail-name">Ally Details</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="ally-detail-content">
+                        <div class="ally-detail-sprite-container">
+                            <img id="ally-detail-sprite" src="" alt="Ally" />
+                        </div>
+                        <div class="ally-detail-info">
+                            <p><strong>Type:</strong> <span id="ally-detail-type"></span></p>
+                            <p><strong>Value:</strong> <span id="ally-detail-value"></span></p>
+                            <p><strong>Description:</strong></p>
+                            <p id="ally-detail-description" class="ally-detail-description"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ally Encounter Display -->
+            <div id="ally-encounter-display" class="ally-encounter-display hidden">
+                <div class="ally-encounter-content">
+                    <h2>🤝 New Ally!</h2>
+                    <div class="ally-encounter-sprite-container">
+                        <img id="ally-encounter-sprite" src="" alt="Ally" />
+                    </div>
+                    <h3 id="ally-encounter-name"></h3>
+                    <p id="ally-encounter-description"></p>
+                    <button id="ally-encounter-close-btn" class="btn btn-primary">Continue</button>
+                </div>
+            </div>
+
+            <!-- Timing Bar Modal -->
+            <div id="timing-bar-modal" class="modal timing-bar-modal">
+                <div class="modal-content timing-bar-content">
+                    <div class="timing-bar-header">
+                        <h2>⚔️ Time Your Attack!</h2>
+                        <p class="timing-instruction">Press <strong>SPACE</strong> when the indicator is in the <span style="color: #00ff00;">green zone</span>!</p>
+                    </div>
+                    <div class="timing-bar-container">
+                        <div class="timing-bar-track">
+                            <div class="timing-zone zone-perfect"></div>
+                            <div id="timing-indicator" class="timing-indicator"></div>
+                        </div>
+                    </div>
+                    <div class="timing-multiplier">
+                        <span id="timing-multiplier-text">Multiplier: <strong>?</strong></span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Shop Modal -->
             <div id="shop-modal" class="modal">
                 <div class="modal-content">
@@ -353,6 +455,231 @@
         </footer>
     </div>
 
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner">
+            <img id="loading-sprite" class="loading-sprite hidden" src="" alt="Enemy" />
+            <div class="spinner"></div>
+            <p id="loading-message">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Developer Mode Button (only visible if dev mode enabled) -->
+    <button id="dev-mode-btn" class="dev-mode-button hidden" title="Toggle Developer Tools">
+        🛠️
+    </button>
+
+    <!-- Developer Panel Overlay -->
+    <div id="dev-panel" class="dev-panel hidden">
+        <div class="dev-panel-header">
+            <h2>🛠️ Developer Tools</h2>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="window.location.reload()" class="dev-refresh-btn" title="Reload Page">🔄</button>
+                <button id="dev-panel-close" class="dev-close-btn">✕</button>
+            </div>
+        </div>
+        <div class="dev-panel-content">
+            <div class="dev-session-info">
+                <span id="dev-session-status">🔴 No session detected</span>
+            </div>
+            
+            <div class="dev-tabs">
+                <button class="dev-tab active" data-tab="stats">Stats</button>
+                <button class="dev-tab" data-tab="battle">Battle</button>
+                <button class="dev-tab" data-tab="room">Room</button>
+                <button class="dev-tab" data-tab="allies">Allies</button>
+                <button class="dev-tab" data-tab="ailments">Ailments</button>
+            </div>
+
+            <!-- Stats Tab -->
+            <div class="dev-tab-content active" data-content="stats">
+                <h3>📊 Modify Stats</h3>
+                <div class="dev-form-grid">
+                    <div class="dev-form-group">
+                        <label>Health</label>
+                        <input type="number" id="dev-stat-health" placeholder="Current HP">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Max Health</label>
+                        <input type="number" id="dev-stat-max-health" placeholder="Max HP">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Gold</label>
+                        <input type="number" id="dev-stat-gold" placeholder="Gold">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Attack</label>
+                        <input type="number" id="dev-stat-attack" placeholder="Attack">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Defense</label>
+                        <input type="number" id="dev-stat-defense" placeholder="Defense">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Speed</label>
+                        <input type="number" id="dev-stat-speed" placeholder="Speed">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Floor</label>
+                        <input type="number" id="dev-stat-floor" placeholder="Floor" min="1">
+                    </div>
+                </div>
+                <button onclick="devApplyStats()" class="dev-btn dev-btn-primary">Apply Stats</button>
+                <button onclick="devGetPlayerInfo()" class="dev-btn dev-btn-secondary">Show Current Stats</button>
+            </div>
+
+            <!-- Battle Tab -->
+            <div class="dev-tab-content" data-content="battle">
+                <h3>⚔️ Battle Controls</h3>
+                <div class="dev-form-grid">
+                    <div class="dev-form-group">
+                        <label>Floor Level</label>
+                        <input type="number" id="dev-battle-floor" value="1" min="1">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Enemy Name (optional)</label>
+                        <input type="text" id="dev-battle-enemy-name" placeholder="Leave empty for random">
+                    </div>
+                    <div class="dev-form-group" style="grid-column: 1 / -1;">
+                        <label>Ailment Types (check multiple)</label>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="poison">
+                                <span>🧪 Poison</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="paralysis">
+                                <span>⚡ Paralysis</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="weakened">
+                                <span>💔 Weakened</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="irradiated">
+                                <span>☢️ Irradiated</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="shackled">
+                                <span>⛓️ Shackled</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="infatuated">
+                                <span>💖 Infatuated (Player Only)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" class="dev-ailment-checkbox" value="blinded">
+                                <span>🙈 Blinded</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Ailment Chance (%)</label>
+                        <input type="number" id="dev-battle-ailment-chance" value="35" min="0" max="100">
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Ailment Severity (0-5)</label>
+                        <input type="number" id="dev-battle-ailment-severity" value="3" min="0" max="5">
+                    </div>
+                </div>
+                <button onclick="devSpawnBattle()" class="dev-btn dev-btn-primary">Spawn Battle</button>
+                <button onclick="devEndBattle()" class="dev-btn dev-btn-danger">End Current Battle</button>
+            </div>
+
+            <!-- Room Tab -->
+            <div class="dev-tab-content" data-content="room">
+                <h3>🏛️ Room Controls</h3>
+                <div class="dev-form-grid">
+                    <div class="dev-form-group">
+                        <label>Room Type</label>
+                        <select id="dev-room-type">
+                            <option value="normal">Normal Room</option>
+                            <option value="shop">Shop Room</option>
+                            <option value="stairs">Stairs Room</option>
+                        </select>
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Floor Level</label>
+                        <input type="number" id="dev-room-floor" value="1" min="1">
+                    </div>
+                </div>
+                <button onclick="devSpawnRoom()" class="dev-btn dev-btn-primary">Spawn Room</button>
+            </div>
+
+            <!-- Allies Tab -->
+            <div class="dev-tab-content" data-content="allies">
+                <h3>🤝 Ally Controls</h3>
+                <div class="dev-form-group">
+                    <label>Ally Name (optional)</label>
+                    <input type="text" id="dev-ally-name" placeholder="Leave empty for random">
+                </div>
+                <button onclick="devGiveAlly()" class="dev-btn dev-btn-primary">Give Random Ally</button>
+                <button onclick="devListAllies()" class="dev-btn dev-btn-secondary">Show Available Allies</button>
+                <div id="dev-allies-list" class="dev-allies-list"></div>
+            </div>
+
+            <!-- Ailments Tab -->
+            <div class="dev-tab-content" data-content="ailments">
+                <h3>🧪 Ailment Controls</h3>
+                <div class="dev-form-grid">
+                    <div class="dev-form-group">
+                        <label>Target</label>
+                        <select id="dev-ailment-target">
+                            <option value="player">Player</option>
+                            <option value="enemy">Enemy (in battle)</option>
+                        </select>
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Ailment Type</label>
+                        <select id="dev-ailment-type">
+                            <option value="poison">🧪 Poison</option>
+                            <option value="paralysis">⚡ Paralysis</option>
+                            <option value="weakened">💔 Weakened</option>
+                            <option value="irradiated">☢️ Irradiated</option>
+                            <option value="shackled">⛓️ Shackled</option>
+                            <option value="infatuated">💖 Infatuated (Player Only)</option>
+                            <option value="blinded">🙈 Blinded</option>
+                        </select>
+                    </div>
+                    <div class="dev-form-group">
+                        <label>Severity (0-5)</label>
+                        <input type="number" id="dev-ailment-severity" value="3" min="0" max="5">
+                    </div>
+                </div>
+                <button onclick="devInflictAilment()" class="dev-btn dev-btn-primary">Inflict Ailment</button>
+            </div>
+
+            <!-- Console Output -->
+            <div class="dev-console">
+                <div class="dev-console-header">
+                    <strong>Console Output</strong>
+                    <button onclick="devClearConsole()" class="dev-btn-sm">Clear</button>
+                </div>
+                <div id="dev-console-output"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/game.js"></script>
+    <script src="/static/dev-panel.js"></script>
+    <script>
+        // Check if dev mode is available
+        fetch('/dev/health?key=abyssal_dev_2024')
+            .then(response => {
+                if (response.ok) {
+                    // Dev mode is enabled
+                    const devBtn = document.getElementById('dev-mode-btn');
+                    devBtn.classList.remove('hidden');
+                    devBtn.onclick = () => {
+                        const panel = document.getElementById('dev-panel');
+                        panel.classList.toggle('hidden');
+                    };
+                }
+            })
+            .catch(() => {
+                // Dev mode not available or key is wrong
+                console.log('Dev mode not available');
+            });
+    </script>
 </body>
 </html>
