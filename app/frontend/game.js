@@ -1373,6 +1373,9 @@ async function useItem(itemId) {
  * Show the timing bar modal and start the mini-game
  */
 function showTimingBar() {
+    console.log('showTimingBar called');
+    console.log('timingBarModal element:', elements.timingBarModal);
+    
     if (!elements.timingBarModal) {
         console.error('Timing bar modal not found!');
         return;
@@ -1399,16 +1402,22 @@ function showTimingBar() {
     gameState.timingBarActive = true;
     
     // Show modal
+    console.log('Adding active class to timing bar modal');
     elements.timingBarModal.classList.add('active');
+    console.log('Modal classList after add:', elements.timingBarModal.classList.toString());
     
     // Reset indicator position
     if (elements.timingIndicator) {
         elements.timingIndicator.style.left = '0%';
+    } else {
+        console.error('Timing indicator element not found!');
     }
     
     // Update multiplier text
     if (elements.timingMultiplierText) {
         elements.timingMultiplierText.innerHTML = 'Multiplier: <strong>?</strong>';
+    } else {
+        console.error('Timing multiplier text element not found!');
     }
     
     // Start animation
