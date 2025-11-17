@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from .models import Player, Enemy, Ally, Room, Item
-from .controllers import MovementController, CombatController, GenerationController, ScoringController, InventoryController
+from .controllers import MovementController, CombatController, GenerationController, ScoringController, InventoryController, BlackjackController
 from .utils import UserDB, create_error_response, create_success_response, sanitize_input
 
 # Create blueprint
@@ -22,7 +22,8 @@ def get_controllers():
         'combat': CombatController(),
         'generation': GenerationController(),
         'scoring': ScoringController(),
-        'inventory': InventoryController()
+        'inventory': InventoryController(),
+        'blackjack': BlackjackController()
     }
 
 def get_user_db():
@@ -1019,6 +1020,215 @@ def purchase_item():
         
     except Exception as e:
         return create_error_response(f"Error purchasing item: {str(e)}"), 500
+
+
+@bp.route('/casino/enter', methods=['POST'])
+def enter_casino():
+    """
+    Enter the casino in the current room.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get current room
+        controllers = get_controllers()
+        controllers['movement'].set_session(session_id)
+        current_room = controllers['movement'].get_room(player.room_id, player.floor)
+        
+        if not current_room:
+            return create_error_response("Current room not found"), 404
+        
+        if not current_room.is_casino:
+            return create_error_response("Current room is not a casino"), 400
+        
+        return create_success_response({
+            "player_gold": player.gold,
+            "casino_name": current_room.name,
+            "casino_description": current_room.description
+        }, "Welcome to the casino!")
+        
+    except Exception as e:
+        return create_error_response(f"Error entering casino: {str(e)}"), 500
+
+
+@bp.route('/casino/blackjack/start', methods=['POST'])
+def start_blackjack():
+    """
+    Start a new blackjack game.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "bet": 50
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'bet' not in data:
+            return create_error_response("Missing session_id or bet"), 400
+        
+        session_id = data['session_id']
+        bet = int(data['bet'])
+        
+        if bet <= 0:
+            return create_error_response("Bet must be positive"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Check if player has enough gold
+        if player.gold < bet:
+            return create_error_response(f"Not enough gold. Need {bet}, have {player.gold}"), 400
+        
+        # Deduct bet from player
+        player.gold -= bet
+        
+        # Start blackjack game
+        controllers = get_controllers()
+        game_state = controllers['blackjack'].start_game(bet)
+        
+        # Save game state in session (we'll store it in player data temporarily)
+        player_data['blackjack_game'] = game_state
+        player_data['gold'] = player.gold
+        user_db.save_user(session_id, player_data)
+        
+        # Get display-friendly version
+        display = controllers['blackjack'].get_game_display(game_state)
+        
+        return create_success_response({
+            "game": display,
+            "player_gold": player.gold
+        }, "Blackjack game started!")
+        
+    except Exception as e:
+        return create_error_response(f"Error starting blackjack: {str(e)}"), 500
+
+
+@bp.route('/casino/blackjack/hit', methods=['POST'])
+def blackjack_hit():
+    """
+    Hit in blackjack (draw another card).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player and game state
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if 'blackjack_game' not in player_data:
+            return create_error_response("No active blackjack game"), 400
+        
+        game_state = player_data['blackjack_game']
+        
+        # Execute hit
+        controllers = get_controllers()
+        game_state = controllers['blackjack'].hit(game_state)
+        
+        # Handle payout if game ended
+        if game_state['game_over']:
+            payout = game_state.get('payout', 0)
+            player_data['gold'] += payout
+            player_data.pop('blackjack_game', None)  # Remove game state
+        else:
+            player_data['blackjack_game'] = game_state
+        
+        user_db.save_user(session_id, player_data)
+        
+        # Get display version
+        display = controllers['blackjack'].get_game_display(game_state)
+        
+        return create_success_response({
+            "game": display,
+            "player_gold": player_data['gold']
+        }, game_state.get('message', 'Card drawn'))
+        
+    except Exception as e:
+        return create_error_response(f"Error hitting in blackjack: {str(e)}"), 500
+
+
+@bp.route('/casino/blackjack/stand', methods=['POST'])
+def blackjack_stand():
+    """
+    Stand in blackjack (end player turn, dealer plays).
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return create_error_response("Missing session_id"), 400
+        
+        session_id = data['session_id']
+        
+        # Get player and game state
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if 'blackjack_game' not in player_data:
+            return create_error_response("No active blackjack game"), 400
+        
+        game_state = player_data['blackjack_game']
+        
+        # Execute stand
+        controllers = get_controllers()
+        game_state = controllers['blackjack'].stand(game_state)
+        
+        # Handle payout
+        payout = game_state.get('payout', 0)
+        player_data['gold'] += payout
+        player_data.pop('blackjack_game', None)  # Remove game state
+        
+        user_db.save_user(session_id, player_data)
+        
+        # Get display version
+        display = controllers['blackjack'].get_game_display(game_state, hide_dealer=False)
+        
+        return create_success_response({
+            "game": display,
+            "player_gold": player_data['gold']
+        }, game_state.get('message', 'Round complete'))
+        
+    except Exception as e:
+        return create_error_response(f"Error standing in blackjack: {str(e)}"), 500
 
 
 # Health check for individual components

@@ -618,6 +618,17 @@ body {
     background: linear-gradient(135deg, #229954 0%, #27ae60 100%);
 }
 
+.btn-casino {
+    width: 100%;
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    margin-top: 10px;
+}
+
+.btn-casino:hover:not(:disabled) {
+    background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
+}
+
 /* Leaderboard */
 .leaderboard-list {
     max-height: 500px;
@@ -1341,4 +1352,146 @@ body {
     background: #7f8c8d;
     cursor: not-allowed;
     transform: none;
+}
+
+/* Casino Styles */
+.casino-info {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-darker);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.casino-greeting {
+    font-style: italic;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.casino-gold {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: var(--gold);
+}
+
+.casino-screen {
+    min-height: 300px;
+}
+
+.bet-input-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 30px;
+}
+
+.bet-input-section label {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+.bet-input-section input {
+    width: 200px;
+    padding: 10px;
+    font-size: 1.1em;
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-darker);
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.blackjack-table {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    margin-bottom: 20px;
+}
+
+.dealer-section, .player-section {
+    background: var(--bg-darker);
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+}
+
+.dealer-section h3, .player-section h3 {
+    margin: 0 0 15px 0;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.card-display {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 15px;
+    min-height: 60px;
+    flex-wrap: wrap;
+}
+
+.playing-card {
+    display: inline-block;
+    width: 50px;
+    height: 70px;
+    background: white;
+    color: black;
+    border: 2px solid #333;
+    border-radius: 6px;
+    font-size: 1.5em;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.card-value {
+    text-align: center;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: var(--gold);
+}
+
+.blackjack-controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.game-message {
+    text-align: center;
+    font-size: 1.3em;
+    font-weight: bold;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    min-height: 50px;
+}
+
+.game-message.success {
+    background: rgba(39, 174, 96, 0.2);
+    color: #2ecc71;
+    border: 2px solid #2ecc71;
+}
+
+.game-message.danger {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 2px solid #e74c3c;
+}
+
+.game-message.info {
+    background: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+    border: 2px solid #3498db;
+}
+
+/* Minimap casino icon */
+.minimap-cell.casino {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
 }

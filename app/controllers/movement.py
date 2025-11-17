@@ -413,8 +413,21 @@ class MovementController:
                 shop_generated = True
                 print(f"DEBUG: Shop generated in room {shop_room_id} on floor {floor}")
         
-        # Place exactly one staircase randomly (not in start room and not in shop)
-        non_start_rooms = [rid for rid in room_ids if rid != "start" and not rooms[rid].is_shop]
+        # Randomly generate a casino on this floor (40% chance)
+        casino_generated = False
+        if random.random() < 0.4:
+            # Place casino in a non-start, non-shop room
+            available_rooms = [rid for rid in room_ids if rid != "start" and not rooms[rid].is_shop]
+            if len(available_rooms) > 1:  # Need at least 2 rooms to avoid conflicts
+                casino_room_id = random.choice(available_rooms)
+                rooms[casino_room_id].set_casino()
+                rooms[casino_room_id].name = "The Lucky Dice Casino"
+                rooms[casino_room_id].description = "A glittering casino run by mysterious figures. The sound of shuffling cards and rolling dice fills the air."
+                casino_generated = True
+                print(f"DEBUG: Casino generated in room {casino_room_id} on floor {floor}")
+        
+        # Place exactly one staircase randomly (not in start room, shop, or casino)
+        non_start_rooms = [rid for rid in room_ids if rid != "start" and not rooms[rid].is_shop and not rooms[rid].is_casino]
         if non_start_rooms:
             staircase_room_id = random.choice(non_start_rooms)
             rooms[staircase_room_id].set_staircase(True)
@@ -426,6 +439,10 @@ class MovementController:
         # If shop was generated, update start room description to hint at it
         if shop_generated:
             start_room.description += " You hear faint curated shopping music in the distance."
+        
+        # If casino was generated, update start room description to hint at it
+        if casino_generated:
+            start_room.description += " The sound of dice and cards echoes faintly through the halls."
         
         print(f"DEBUG: Floor {floor} generated with {len(rooms)} rooms: {list(rooms.keys())}")
         
