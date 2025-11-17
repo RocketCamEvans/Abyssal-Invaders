@@ -24,6 +24,7 @@ class Room:
         self.is_shop = False  # Whether this room is a shop
         self.shop_items = []  # Items available in shop
         self.purchased_items = set()  # Items already purchased from this shop
+        self.is_casino = False  # Whether this room is a casino
         
     def add_connection(self, direction: str, room_id: str):
         """
@@ -117,6 +118,13 @@ class Room:
         if items:
             self.shop_items = items
     
+    def set_casino(self):
+        """
+        Set this room as a casino.
+        """
+        self.is_casino = True
+        self.encounter_chance = 0.0  # Casinos never have encounters
+    
     def purchase_item(self, item_name: str) -> bool:
         """
         Mark an item as purchased in this shop.
@@ -200,7 +208,8 @@ class Room:
             "ally_data": self.ally_data,
             "is_shop": self.is_shop,
             "shop_items": self.shop_items,
-            "purchased_items": list(self.purchased_items)
+            "purchased_items": list(self.purchased_items),
+            "is_casino": self.is_casino
         }
     
     @classmethod
@@ -228,6 +237,7 @@ class Room:
         room.is_shop = data.get("is_shop", False)
         room.shop_items = data.get("shop_items", [])
         room.purchased_items = set(data.get("purchased_items", []))
+        room.is_casino = data.get("is_casino", False)
         return room
     
     def get_room_info(self) -> dict:
@@ -247,5 +257,6 @@ class Room:
             "has_ally": self.has_ally(),
             "ally_name": self.ally_data.get('name') if self.ally_data else None,
             "is_shop": self.is_shop,
+            "is_casino": self.is_casino,
             "has_been_visited": self.has_been_visited
         }

@@ -208,6 +208,7 @@
                             </div>
                             <button id="move-up" class="btn btn-special" disabled>🔼 Ascend Staircase</button>
                             <button id="enter-shop" class="btn btn-shop hidden">🏪 Enter Shop</button>
+                            <button id="enter-casino" class="btn btn-casino hidden">🎰 Enter Casino</button>
                         </div>
                     </div>
 
@@ -230,6 +231,7 @@
                                 <span class="legend-item"><span class="legend-icon visited">○</span> Visited</span>
                                 <span class="legend-item"><span class="legend-icon stairs">▲</span> Stairs</span>
                                 <span class="legend-item"><span class="legend-icon shop">🏪</span> Shop</span>
+                                <span class="legend-item"><span class="legend-icon casino">🎰</span> Casino</span>
                             </div>
                         </div>
 
@@ -397,6 +399,51 @@
                     </div>
                     <div id="modal-shop-list" class="modal-shop-list">
                         <p class="empty-state">Loading shop...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Casino Modal -->
+            <div id="casino-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>🎰 The Lucky Dice Casino</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="casino-info">
+                        <p class="casino-greeting">"Try your luck at Blackjack! Place your bets..."</p>
+                        <p class="casino-gold">💰 Your Gold: <span id="casino-player-gold">0</span></p>
+                    </div>
+                    
+                    <!-- Bet Entry -->
+                    <div id="casino-bet-screen" class="casino-screen">
+                        <div class="bet-input-section">
+                            <label for="bet-amount">Enter Bet Amount:</label>
+                            <input type="number" id="bet-amount" min="1" placeholder="Enter bet" />
+                            <button id="start-blackjack-btn" class="btn btn-primary">Start Blackjack</button>
+                        </div>
+                    </div>
+
+                    <!-- Blackjack Game -->
+                    <div id="casino-game-screen" class="casino-screen hidden">
+                        <div class="blackjack-table">
+                            <div class="dealer-section">
+                                <h3>Dealer</h3>
+                                <div id="dealer-cards" class="card-display"></div>
+                                <p class="card-value">Value: <span id="dealer-value">0</span></p>
+                            </div>
+                            <div class="player-section">
+                                <h3>Your Hand</h3>
+                                <div id="player-cards" class="card-display"></div>
+                                <p class="card-value">Value: <span id="player-value">0</span></p>
+                            </div>
+                        </div>
+                        <div class="blackjack-controls">
+                            <button id="hit-btn" class="btn btn-primary">Hit</button>
+                            <button id="stand-btn" class="btn btn-warning">Stand</button>
+                        </div>
+                        <div id="game-message" class="game-message"></div>
+                        <button id="new-hand-btn" class="btn btn-success hidden">New Hand</button>
                     </div>
                 </div>
             </div>

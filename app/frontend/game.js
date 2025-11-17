@@ -159,6 +159,7 @@ function initializeElements() {
         moveWest: document.getElementById('move-west'),
         moveUp: document.getElementById('move-up'),
         enterShopBtn: document.getElementById('enter-shop'),
+        enterCasinoBtn: document.getElementById('enter-casino'),
         
         // Actions
         viewStatsBtn: document.getElementById('view-stats-btn'),
@@ -203,6 +204,21 @@ function initializeElements() {
         modalShopList: document.getElementById('modal-shop-list'),
         shopPlayerGold: document.getElementById('shop-player-gold'),
         
+        // Casino elements
+        casinoModal: document.getElementById('casino-modal'),
+        casinoPlayerGold: document.getElementById('casino-player-gold'),
+        casinoBetScreen: document.getElementById('casino-bet-screen'),
+        casinoGameScreen: document.getElementById('casino-game-screen'),
+        betAmount: document.getElementById('bet-amount'),
+        startBlackjackBtn: document.getElementById('start-blackjack-btn'),
+        dealerCards: document.getElementById('dealer-cards'),
+        playerCards: document.getElementById('player-cards'),
+        dealerValue: document.getElementById('dealer-value'),
+        playerValue: document.getElementById('player-value'),
+        hitBtn: document.getElementById('hit-btn'),
+        standBtn: document.getElementById('stand-btn'),
+        gameMessage: document.getElementById('game-message'),
+        newHandBtn: document.getElementById('new-hand-btn'),
         // Ally detail modal elements
         allyDetailName: document.getElementById('ally-detail-name'),
         allyDetailType: document.getElementById('ally-detail-type'),
@@ -465,6 +481,7 @@ function attachEventListeners() {
     elements.moveWest.addEventListener('click', () => movePlayer('west'));
     elements.moveUp.addEventListener('click', () => movePlayer('up'));
     elements.enterShopBtn.addEventListener('click', openShop);
+    elements.enterCasinoBtn.addEventListener('click', openCasino);
     
     // Combat (with animations)
     elements.attackBtn.addEventListener('click', (e) => {
@@ -524,6 +541,16 @@ function attachEventListeners() {
                 modal.classList.remove('active');
             }
         });
+    });
+    
+    // Casino event listeners
+    elements.startBlackjackBtn.addEventListener('click', startBlackjack);
+    elements.hitBtn.addEventListener('click', blackjackHit);
+    elements.standBtn.addEventListener('click', blackjackStand);
+    elements.newHandBtn.addEventListener('click', () => {
+        elements.casinoBetScreen.classList.remove('hidden');
+        elements.casinoGameScreen.classList.add('hidden');
+        elements.betAmount.value = '';
     });
 }
 
@@ -602,7 +629,8 @@ async function startNewGame() {
     gameState.roomInfo = {};
     gameState.roomInfo[gameState.player.room_id] = {
         hasStairs: gameState.currentRoom.has_staircase || false,
-        isShop: gameState.currentRoom.is_shop || false
+        isShop: gameState.currentRoom.is_shop || false,
+        isCasino: gameState.currentRoom.is_casino || false
     };
     
     showScreen('game-screen');
@@ -1822,6 +1850,18 @@ function updateRoomDisplay() {
         elements.enterShopBtn.classList.add('hidden');
     }
     
+    // Show/hide casino button
+    if (gameState.currentRoom.is_casino) {
+        elements.enterCasinoBtn.classList.remove('hidden');
+        const badge = document.createElement('span');
+        badge.className = 'feature-badge';
+        badge.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+        badge.textContent = '🎰 Casino Available';
+        elements.roomFeatures.appendChild(badge);
+    } else {
+        elements.enterCasinoBtn.classList.add('hidden');
+    }
+    
     // Update movement buttons
     updateMovementButtons();
 }
@@ -1897,7 +1937,8 @@ async function movePlayer(direction) {
     if (result.data.room_info) {
         gameState.roomInfo[gameState.player.room_id] = {
             hasStairs: result.data.room_info.has_staircase || false,
-            isShop: result.data.room_info.is_shop || false
+            isShop: result.data.room_info.is_shop || false,
+            isCasino: result.data.room_info.is_casino || false
         };
     }
     
@@ -2687,7 +2728,8 @@ function updateMinimap() {
             y: pos.y,
             isCurrent: roomId === currentRoom,
             hasStairs: roomData.hasStairs || false,
-            isShop: roomData.isShop || false
+            isShop: roomData.isShop || false,
+            isCasino: roomData.isCasino || false
         };
     }).filter(coord => coord !== null);
     
@@ -2735,6 +2777,10 @@ function updateMinimap() {
                     cell.classList.add('shop');
                     cell.textContent = '🏪';
                     cell.title = 'Shop';
+                } else if (room.isCasino) {
+                    cell.classList.add('casino');
+                    cell.textContent = '🎰';
+                    cell.title = 'Casino';
                 } else if (room.hasStairs) {
                     cell.classList.add('stairs');
                     cell.textContent = '▲';
@@ -2849,6 +2895,152 @@ async function purchaseShopItem(itemName, price) {
     openShop();
 }
 
+// Casino functions
+async function openCasino() {
+    addLogEntry('Entering the casino...', 'info');
+    
+    const result = await apiRequest('/casino/enter', 'POST', {
+        session_id: gameState.sessionId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Casino error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update player gold display in casino
+    elements.casinoPlayerGold.textContent = result.data.player_gold;
+    
+    // Reset casino screens
+    elements.casinoBetScreen.classList.remove('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    elements.betAmount.value = '';
+    
+    // Show casino modal
+    elements.casinoModal.classList.add('active');
+}
+
+// Start a new blackjack game
+async function startBlackjack() {
+    const bet = parseInt(elements.betAmount.value);
+    
+    if (!bet || bet <= 0) {
+        addLogEntry('Please enter a valid bet amount', 'danger');
+        return;
+    }
+    
+    if (bet > gameState.player.gold) {
+        addLogEntry(`Not enough gold! You have ${gameState.player.gold}`, 'danger');
+        return;
+    }
+    
+    addLogEntry(`Starting blackjack with ${bet} gold bet...`, 'info');
+    
+    const result = await apiRequest('/casino/blackjack/start', 'POST', {
+        session_id: gameState.sessionId,
+        bet: bet
+    });
+    
+    if (result.error) {
+        addLogEntry(`Error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = gameState.player.gold;
+    updatePlayerDisplay();
+    
+    // Display game
+    displayBlackjackGame(result.data.game);
+    
+    // Show game screen
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.remove('hidden');
+    
+    addLogEntry(result.message, 'success');
+}
+
+// Hit in blackjack
+async function blackjackHit() {
+    const result = await apiRequest('/casino/blackjack/hit', 'POST', {
+        session_id: gameState.sessionId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = gameState.player.gold;
+    updatePlayerDisplay();
+    
+    // Display game
+    displayBlackjackGame(result.data.game);
+    
+    if (result.data.game.message) {
+        addLogEntry(result.data.game.message, result.data.game.game_over ? 'important' : 'info');
+    }
+}
+
+// Stand in blackjack
+async function blackjackStand() {
+    const result = await apiRequest('/casino/blackjack/stand', 'POST', {
+        session_id: gameState.sessionId
+    });
+    
+    if (result.error) {
+        addLogEntry(`Error: ${result.message}`, 'danger');
+        return;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = gameState.player.gold;
+    updatePlayerDisplay();
+    
+    // Display game
+    displayBlackjackGame(result.data.game);
+    
+    if (result.data.game.message) {
+        addLogEntry(result.data.game.message, 'important');
+    }
+}
+
+// Display blackjack game state
+function displayBlackjackGame(game) {
+    // Display dealer cards
+    elements.dealerCards.innerHTML = game.dealer_cards.map(card => 
+        `<span class="playing-card">${card}</span>`
+    ).join(' ');
+    elements.dealerValue.textContent = game.dealer_value;
+    
+    // Display player cards
+    elements.playerCards.innerHTML = game.player_cards.map(card => 
+        `<span class="playing-card">${card}</span>`
+    ).join(' ');
+    elements.playerValue.textContent = game.player_value;
+    
+    // Show/hide controls based on game state
+    if (game.game_over) {
+        elements.hitBtn.classList.add('hidden');
+        elements.standBtn.classList.add('hidden');
+        elements.newHandBtn.classList.remove('hidden');
+        
+        // Display result message
+        elements.gameMessage.textContent = game.message || '';
+        elements.gameMessage.className = 'game-message ' + 
+            (game.result === 'win' || game.result === 'blackjack' ? 'success' : 
+             game.result === 'loss' || game.result === 'bust' ? 'danger' : 'info');
+    } else {
+        elements.hitBtn.classList.remove('hidden');
+        elements.standBtn.classList.remove('hidden');
+        elements.newHandBtn.classList.add('hidden');
+        elements.gameMessage.textContent = '';
+    }
+}
 // ============================================
 // ANIMATION HELPER FUNCTIONS
 // ============================================
