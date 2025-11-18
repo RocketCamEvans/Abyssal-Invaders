@@ -809,6 +809,31 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         
         enemy.take_damage(damage)
         
+        # Track achievement stats
+        # Track max damage dealt
+        if damage > player.stats.get('max_damage_dealt', 0):
+            player.stats['max_damage_dealt'] = damage
+        
+        # Track critical hits
+        if is_critical:
+            player.stats['critical_hits_this_battle'] = player.stats.get('critical_hits_this_battle', 0) + 1
+            player.stats['consecutive_crits'] = player.stats.get('consecutive_crits', 0) + 1
+            # Track max consecutive crits
+            if player.stats['consecutive_crits'] > player.stats.get('max_consecutive_crits', 0):
+                player.stats['max_consecutive_crits'] = player.stats['consecutive_crits']
+        else:
+            # Reset consecutive crits on non-crit
+            player.stats['consecutive_crits'] = 0
+        
+        # Track perfect timing hits
+        if timing_multiplier and timing_multiplier >= 1.15:
+            player.stats['perfect_timing_hits'] = player.stats.get('perfect_timing_hits', 0) + 1
+            player.stats['consecutive_perfect_hits'] = player.stats.get('consecutive_perfect_hits', 0) + 1
+            if player.stats['consecutive_perfect_hits'] > player.stats.get('max_consecutive_perfect_hits', 0):
+                player.stats['max_consecutive_perfect_hits'] = player.stats['consecutive_perfect_hits']
+        else:
+            player.stats['consecutive_perfect_hits'] = 0
+        
         # Generate description
         timing_desc = ""
         if timing_multiplier is not None:
@@ -918,6 +943,9 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         damage = int(damage * element_multiplier)
         
         player.take_damage(damage)
+        
+        # Track damage taken for achievements
+        player.stats['damage_taken_this_battle'] = player.stats.get('damage_taken_this_battle', 0) + damage
         
         # Generate description with elemental effectiveness
         base_description = f"{enemy.name} attacks {player.name} for {damage} damage!"
@@ -1214,6 +1242,27 @@ Write a dramatic death message (1-2 sentences). The player was KILLED and DIED -
             healing_found = random.randint(10, 25)
             player.heal(healing_found)
         
+        # Update achievement stats
+        player.stats["enemies_defeated"] = player.stats.get("enemies_defeated", 0) + 1
+        
+        # Check for special victory conditions
+        if player.stats.get('damage_taken_this_battle', 0) == 0:
+            # Untouchable achievement - no damage taken
+            player.unlock_achievement('untouchable')
+        
+        if player.health == 1:
+            # Close call achievement - exactly 1 HP remaining
+            player.unlock_achievement('close_call')
+        
+        # Reset per-battle stats
+        player.stats['critical_hits_this_battle'] = 0
+        player.stats['damage_taken_this_battle'] = 0
+        player.stats['consecutive_perfect_hits'] = 0
+        player.stats['consecutive_crits'] = 0
+        
+        # Check for achievement unlocks
+        newly_unlocked = player.check_achievements()
+        
         message = f"Victory! You defeated {enemy.name} and earned {gold_reward} gold and {exp_reward} experience."
         if leveled_up:
             message += f" **LEVEL UP!** You are now level {player.level}!"
@@ -1231,7 +1280,8 @@ Write a dramatic death message (1-2 sentences). The player was KILLED and DIED -
             "current_health": player.health,
             "max_health": player.max_health,
             "level_progress": player.get_current_level_progress(),
-            "message": message
+            "message": message,
+            "achievements_unlocked": newly_unlocked
         }
     
     def _generate_combat_description(self, player: Player, enemy: Enemy, room: Room) -> str:

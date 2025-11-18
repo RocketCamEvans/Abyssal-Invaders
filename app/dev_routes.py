@@ -242,6 +242,24 @@ def give_ally():
         )
         
         result = player.add_ally(ally)
+        
+        # Update achievement stats for ally recruitment
+        if result.get('success'):
+            player.stats["allies_recruited"] = player.stats.get("allies_recruited", 0) + 1
+            
+            # Check if player has all unique allies (12 total)
+            unique_ally_names = set()
+            for ally_obj in player.allies:
+                ally_name = ally_obj.name if hasattr(ally_obj, 'name') else ally_obj.get('name', '')
+                if ally_name:
+                    unique_ally_names.add(ally_name)
+            
+            # If player has all 12 unique allies, set the stat
+            if len(unique_ally_names) >= 12:
+                player.stats['all_allies_recruited'] = 1.0
+            else:
+                player.stats['all_allies_recruited'] = 0.0
+        
         user_db.save_user(session_id, player.to_dict())
         
         return jsonify(create_success_response({
@@ -722,5 +740,80 @@ def spawn_casino():
         
     except Exception as e:
         return jsonify(create_error_response(f"Error spawning casino: {str(e)}")), 500
+
+
+@dev_bp.route('/dev/unlock-achievement', methods=['POST'])
+def unlock_achievement():
+    """Unlock a specific achievement for a player (dev only)."""
+    if not verify_dev_key():
+        return jsonify(create_error_response("Access Denied")), 403
+    
+    try:
+        data = request.json
+        if not data:
+            return jsonify(create_error_response("No data provided")), 400
+        
+        session_id = data.get('session_id')
+        achievement_id = data.get('achievement_id')
+        
+        if not session_id or not achievement_id:
+            return jsonify(create_error_response("Missing session_id or achievement_id")), 400
+        
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return jsonify(create_error_response("Player not found")), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get achievement info
+        from app.models.achievement import Achievement
+        achievement = Achievement.get_achievement(achievement_id)
+        
+        if not achievement:
+            return jsonify(create_error_response("Achievement not found")), 404
+        
+        # Set stats to meet requirement (cheat for dev testing)
+        stat_name = achievement.requirement.get('stat')
+        required_value = achievement.requirement.get('value', 0)
+        
+        if stat_name:
+            player.stats[stat_name] = required_value
+        
+        # Unlock achievement
+        was_unlocked, reward = player.unlock_achievement(achievement_id)
+        
+        if not was_unlocked:
+            return jsonify(create_success_response({
+                'already_unlocked': True,
+                'achievement': {
+                    'id': achievement['id'],
+                    'name': achievement['name'],
+                    'emoji': achievement['emoji']
+                }
+            }, "Achievement was already unlocked"))
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        return jsonify(create_success_response({
+            'unlocked': True,
+            'achievement': {
+                'id': achievement['id'],
+                'name': achievement['name'],
+                'description': achievement['description'],
+                'emoji': achievement['emoji'],
+                'reward': reward
+            },
+            'player': {
+                'gold': player.gold,
+                'total_achievements': len(player.achievements)
+            }
+        }, f"Unlocked {achievement.emoji} {achievement.name} (+{reward} gold)"))
+        
+    except Exception as e:
+        return jsonify(create_error_response(f"Error unlocking achievement: {str(e)}")), 500
+
 
 

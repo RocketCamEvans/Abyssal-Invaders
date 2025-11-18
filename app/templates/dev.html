@@ -360,6 +360,41 @@
                 <button onclick="changeFloor()">Change Floor</button>
                 <button onclick="getPlayerInfo()" style="margin-top: 10px;" class="btn-success">Show Player Info</button>
             </div>
+
+            <!-- Achievements Card -->
+            <div class="card">
+                <h2>🏆 Achievements</h2>
+                <div class="form-group">
+                    <label>Achievement ID</label>
+                    <select id="achievement-id">
+                        <option value="first_blood">⚔️ First Blood</option>
+                        <option value="seasoned_warrior">⚔️ Seasoned Warrior</option>
+                        <option value="veteran_slayer">⚔️ Veteran Slayer</option>
+                        <option value="legendary_warrior">👑 Legendary Warrior</option>
+                        <option value="speed_demon">⚡ Speed Demon</option>
+                        <option value="explorer">🗺️ Explorer</option>
+                        <option value="floor_10">🔟 Floor 10</option>
+                        <option value="floor_25">🏔️ Floor 25</option>
+                        <option value="wealthy">💰 Wealthy</option>
+                        <option value="rich">💎 Rich</option>
+                        <option value="shopaholic">🛍️ Shopaholic</option>
+                        <option value="lucky_streak">🎰 Lucky Streak</option>
+                        <option value="high_roller">🎲 High Roller</option>
+                        <option value="party_leader">👥 Party Leader</option>
+                        <option value="critical_master">💥 Critical Master</option>
+                        <option value="untouchable">🛡️ Untouchable</option>
+                        <option value="fullmetal">⚙️ Fullmetal</option>
+                        <option value="bullseye">🎯 Bullseye</option>
+                        <option value="king_of_hell">👹 King of Hell</option>
+                        <option value="one_punch">👊 One Punch Person</option>
+                        <option value="close_call">💀 Close Call</option>
+                        <option value="hephaestus">🔱 From Hephaestus, to Achilles</option>
+                        <option value="pantheon">🏛️ Pantheon</option>
+                        <option value="qa">🧪 QA</option>
+                    </select>
+                </div>
+                <button onclick="unlockAchievement()">Unlock Achievement</button>
+            </div>
         </div>
 
         <div id="output"></div>
@@ -642,6 +677,25 @@
                 log(`  Ailments: ${stats.ailments}`, 'info');
             }
         }
+
+        async function unlockAchievement() {
+            const achievementId = document.getElementById('achievement-id').value;
+            if (!achievementId) {
+                log('❌ Please select an achievement', 'error');
+                return;
+            }
+
+            const result = await makeRequest('/dev/unlock-achievement', {
+                achievement_id: achievementId
+            });
+
+            if (result && result.success) {
+                const ach = result.data.achievement;
+                log(`✓ Unlocked ${ach.emoji} ${ach.name}! (+${ach.reward} gold)`, 'success');
+                log(`  Player now has ${result.data.player.total_achievements} achievements`, 'info');
+            }
+        }
     </script>
 </body>
 </html>
+

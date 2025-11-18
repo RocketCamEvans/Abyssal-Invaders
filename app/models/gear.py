@@ -122,6 +122,8 @@ class Gear:
     def get_item_info(self) -> dict:
         """Get gear info for frontend display (compatible with Item interface)."""
         return {
+            "gear_id": self.gear_id,
+            "item_id": self.gear_id,  # For compatibility with Item interface
             "name": self.name,
             "description": self.description,
             "gear_type": self.gear_type,

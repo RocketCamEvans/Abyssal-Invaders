@@ -55,6 +55,29 @@ class Player:
         # Ailments
         self.ailments = []  # List of active ailments
         
+        # Achievement tracking
+        self.achievements = {}  # Dict of unlocked achievements: {achievement_id: timestamp}
+        self.stats = {
+            'enemies_defeated': 0,
+            'rooms_visited': 0,
+            'items_purchased': 0,
+            'casino_winnings': 0,
+            'allies_recruited': 0,
+            'critical_hits_this_battle': 0,
+            'consecutive_crits': 0,
+            'max_consecutive_crits': 0,
+            'damage_taken_this_battle': 0,
+            'highest_floor_reached': 1,
+            'max_damage_dealt': 0,
+            'fully_equipped': 0,
+            'perfect_timing_hits': 0,
+            'consecutive_perfect_hits': 0,
+            'max_consecutive_perfect_hits': 0,
+            'items_used': 0,
+            'all_legendary_equipped': 0,
+            'all_allies_recruited': 0
+        }
+        
     def take_damage(self, damage: int) -> bool:
         """
         Apply damage to the player.
@@ -216,13 +239,35 @@ class Player:
         
         # Remove gear from inventory
         for i, inv_item in enumerate(self.inventory):
-            if hasattr(inv_item, 'gear_id') and inv_item.gear_id == gear.gear_id:
-                self.inventory.pop(i)
-                break
+            # Handle both Gear objects and dicts
+            if hasattr(inv_item, 'gear_id'):
+                if inv_item.gear_id == gear.gear_id:
+                    self.inventory.pop(i)
+                    break
+            elif isinstance(inv_item, dict) and 'gear_id' in inv_item:
+                if inv_item['gear_id'] == gear.gear_id:
+                    self.inventory.pop(i)
+                    break
         
         # Add old gear back to inventory if there was one
         if old_gear:
             self.inventory.append(old_gear)
+        
+        # Check if fully equipped (weapon, armor, and accessory)
+        if self.equipped_weapon and self.equipped_armor and self.equipped_accessory:
+            self.stats['fully_equipped'] = 1.0
+            # Check if all legendary
+            weapon_legendary = hasattr(self.equipped_weapon, 'rarity') and self.equipped_weapon.rarity == 'legendary'
+            armor_legendary = hasattr(self.equipped_armor, 'rarity') and self.equipped_armor.rarity == 'legendary'
+            accessory_legendary = hasattr(self.equipped_accessory, 'rarity') and self.equipped_accessory.rarity == 'legendary'
+            
+            if weapon_legendary and armor_legendary and accessory_legendary:
+                self.stats['all_legendary_equipped'] = 1.0
+            else:
+                self.stats['all_legendary_equipped'] = 0.0
+        else:
+            self.stats['fully_equipped'] = 0.0
+            self.stats['all_legendary_equipped'] = 0.0
         
         return {
             "success": True,
@@ -255,6 +300,23 @@ class Player:
         
         if gear:
             self.inventory.append(gear)
+            
+            # Check if still fully equipped
+            if self.equipped_weapon and self.equipped_armor and self.equipped_accessory:
+                self.stats['fully_equipped'] = 1.0
+                # Check if all legendary
+                weapon_legendary = hasattr(self.equipped_weapon, 'rarity') and self.equipped_weapon.rarity == 'legendary'
+                armor_legendary = hasattr(self.equipped_armor, 'rarity') and self.equipped_armor.rarity == 'legendary'
+                accessory_legendary = hasattr(self.equipped_accessory, 'rarity') and self.equipped_accessory.rarity == 'legendary'
+                
+                if weapon_legendary and armor_legendary and accessory_legendary:
+                    self.stats['all_legendary_equipped'] = 1.0
+                else:
+                    self.stats['all_legendary_equipped'] = 0.0
+            else:
+                self.stats['fully_equipped'] = 0.0
+                self.stats['all_legendary_equipped'] = 0.0
+            
             return {
                 "success": True,
                 "message": f"Unequipped {gear.name}.",
@@ -362,6 +424,12 @@ class Player:
         self.battle_room = room_data
         self.current_ally = ally_data
         self.ally_used = False
+        
+        # Reset per-battle stats
+        self.stats['critical_hits_this_battle'] = 0
+        self.stats['damage_taken_this_battle'] = 0
+        self.stats['consecutive_perfect_hits'] = 0
+        self.stats['consecutive_crits'] = 0
         
         # Reset all allies' used status at the start of each battle
         # This allows allies to be used once per battle, not once ever
@@ -539,6 +607,74 @@ class Player:
             return ""
         return " ".join([a.get_emoji() for a in self.ailments])
     
+    def unlock_achievement(self, achievement_id: str) -> tuple[bool, int]:
+        """
+        Unlock an achievement and award its gold reward.
+        
+        Args:
+            achievement_id: The ID of the achievement to unlock
+            
+        Returns:
+            tuple: (was_newly_unlocked, gold_reward)
+        """
+        from .achievement import Achievement
+        from datetime import datetime
+        
+        # Check if already unlocked
+        if achievement_id in self.achievements:
+            return False, 0
+        
+        # Get achievement data
+        achievement = Achievement.get_achievement(achievement_id)
+        if not achievement:
+            return False, 0
+        
+        # Unlock achievement
+        self.achievements[achievement_id] = datetime.now().isoformat()
+        
+        # Award gold (achievement is a dict)
+        reward = achievement['reward']
+        self.gold += reward
+        
+        return True, reward
+    
+    def check_achievements(self) -> list[dict]:
+        """
+        Check all achievements and unlock any that have been completed.
+        
+        Returns:
+            list: List of newly unlocked achievements with their data
+        """
+        from .achievement import Achievement
+        
+        newly_unlocked = []
+        all_achievements = Achievement.get_all()
+        
+        # Create a combined stats dict that includes gold for wealth achievements
+        stats_with_gold = self.stats.copy()
+        stats_with_gold['gold'] = self.gold
+        
+        for achievement in all_achievements:
+            # Skip already unlocked (achievement is a dict)
+            achievement_id = achievement['id']
+            if achievement_id in self.achievements:
+                continue
+            
+            # Check if requirements are met
+            progress = Achievement.check_progress(achievement, stats_with_gold)
+            if progress >= 1.0:  # Achievement completed
+                was_unlocked, reward = self.unlock_achievement(achievement_id)
+                if was_unlocked:
+                    newly_unlocked.append({
+                        "id": achievement_id,
+                        "name": achievement['name'],
+                        "description": achievement['description'],
+                        "emoji": achievement['emoji'],
+                        "reward": reward
+                    })
+        
+        return newly_unlocked
+    
     def to_dict(self) -> dict:
         """
         Convert player to dictionary for JSON serialization.
@@ -559,7 +695,7 @@ class Player:
             "room_id": self.room_id,
             "visited_rooms": list(self.visited_rooms),
             "allies": [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in self.allies],
-            "inventory": [item.to_dict() for item in self.inventory],
+            "inventory": [item.to_dict() if hasattr(item, 'to_dict') else item for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
             "attack_element": self.attack_element,
@@ -576,7 +712,9 @@ class Player:
             "temp_defense_boost": self.temp_defense_boost,
             "room_positions": self.room_positions,
             "room_info": self.room_info,
-            "ailments": [ailment.to_dict() for ailment in self.ailments]
+            "ailments": [ailment.to_dict() for ailment in self.ailments],
+            "achievements": self.achievements,
+            "stats": self.stats
         }
     
     @classmethod
@@ -655,5 +793,28 @@ class Player:
         # Ailments (with defaults for backward compatibility)
         from .ailment import Ailment
         player.ailments = [Ailment.from_dict(ailment_data) for ailment_data in data.get("ailments", [])]
+        
+        # Achievements and stats (with defaults for backward compatibility)
+        player.achievements = data.get("achievements", {})
+        player.stats = data.get("stats", {
+            "enemies_defeated": 0,
+            "rooms_visited": 0,
+            "items_purchased": 0,
+            "casino_winnings": 0,
+            "allies_recruited": 0,
+            "critical_hits_this_battle": 0,
+            "consecutive_crits": 0,
+            "max_consecutive_crits": 0,
+            "damage_taken_this_battle": 0,
+            "highest_floor_reached": 0,
+            "max_damage_dealt": 0,
+            "fully_equipped": 0,
+            "perfect_timing_hits": 0,
+            "consecutive_perfect_hits": 0,
+            "max_consecutive_perfect_hits": 0,
+            "items_used": 0,
+            "all_legendary_equipped": 0,
+            "all_allies_recruited": 0
+        })
         
         return player

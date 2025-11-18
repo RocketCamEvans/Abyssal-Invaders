@@ -121,7 +121,7 @@ def create_player():
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
-                'inventory': [item.get_item_info() for item in player.inventory],
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
                 'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
                 'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
                 'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
@@ -180,7 +180,7 @@ def get_player_status():
             },
             'current_room': current_room.get_room_info(),
             'movement_options': movement_info['data'] if not movement_info.get('error') else {},
-            'inventory': [item.get_item_info() for item in player.inventory],
+            'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
             'allies': [ally.get_ally_info() if hasattr(ally, 'get_ally_info') else ally for ally in player.allies]
         }
         
@@ -380,6 +380,33 @@ def move_player():
         if not room_was_visited:
             exploration_gold = controllers['scoring'].award_exploration_gold(player, True)
             player.add_gold(exploration_gold)
+            
+            # Update achievement stats for room visit
+            player.stats["rooms_visited"] = player.stats.get("rooms_visited", 0) + 1
+        
+        # Update highest floor reached
+        if player.floor > player.stats.get("highest_floor_reached", 0):
+            player.stats["highest_floor_reached"] = player.floor
+        
+        # Check for ally recruitment achievement
+        if ally_encountered and ally_result and ally_result.get('ally_recruited', False):
+            player.stats["allies_recruited"] = player.stats.get("allies_recruited", 0) + 1
+            
+            # Check if player has all unique allies (12 total)
+            unique_ally_names = set()
+            for ally in player.allies:
+                ally_name = ally.name if hasattr(ally, 'name') else ally.get('name', '')
+                if ally_name:
+                    unique_ally_names.add(ally_name)
+            
+            # If player has all 12 unique allies, set the stat
+            if len(unique_ally_names) >= 12:
+                player.stats['all_allies_recruited'] = 1.0
+            else:
+                player.stats['all_allies_recruited'] = 0.0
+        
+        # Check for achievement unlocks
+        newly_unlocked = player.check_achievements()
         
         print(f"DEBUG MOVE END: Player has {len(player.allies)} allies before saving")
         print(f"DEBUG MOVE END: Allies: {[a.name if hasattr(a, 'name') else str(a) for a in player.allies]}")
@@ -400,6 +427,7 @@ def move_player():
         response_data['encounter_occurred'] = encounter_occurred
         response_data['ally_encountered'] = ally_encountered
         response_data['item_found'] = item_found
+        response_data['achievements_unlocked'] = newly_unlocked
         
         # Add more detailed debug info with correct encounter roll result
         if new_room:
@@ -813,7 +841,7 @@ def load_player():
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
-                'inventory': [item.get_item_info() for item in player.inventory],
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
                 'is_alive': player.is_alive(),
                 'in_battle': player.in_battle,
                 'current_enemy': player.current_enemy,
@@ -1002,14 +1030,27 @@ def use_item():
         controllers = get_controllers()
         success, result = controllers['inventory'].use_item(player, item_id, enemy)
         
+        # Track items used for achievements
+        if success:
+            player.stats['items_used'] = player.stats.get('items_used', 0) + 1
+        
         # If enemy was affected, update it in player's battle state
         if enemy and player.in_battle:
             player.current_enemy = enemy.to_dict()
+        
+        # Check for achievements
+        newly_unlocked = player.check_achievements()
         
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
         
         if success:
+            # Add achievements to result if any
+            if isinstance(result, tuple) and len(result) == 2:
+                response_data, status_code = result
+                if isinstance(response_data, dict) and 'data' in response_data:
+                    response_data['data']['achievements_unlocked'] = newly_unlocked
+                return response_data, status_code
             return result
         else:
             return result, 400
@@ -1182,6 +1223,12 @@ def purchase_item():
         # Mark item as purchased
         current_room.purchase_item(item_name)
         
+        # Update achievement stats
+        player.stats["items_purchased"] = player.stats.get("items_purchased", 0) + 1
+        
+        # Check for achievement unlocks
+        newly_unlocked = player.check_achievements()
+        
         # Save updated player state
         user_db.save_user(session_id, player.to_dict())
         
@@ -1191,7 +1238,8 @@ def purchase_item():
         return create_success_response({
             "purchased_item": shop_item,
             "gold_remaining": player.gold,
-            "inventory": [item.to_dict() for item in player.inventory]
+            "inventory": [item.to_dict() for item in player.inventory],
+            "achievements_unlocked": newly_unlocked
         }, f"Purchased {item_name} for {shop_item['price']} gold!")
         
     except Exception as e:
@@ -1626,6 +1674,19 @@ def play_slots():
         player_data['gold'] += winnings
         net_gain = winnings - bet
         
+        # Update achievement stats if net win
+        if net_gain > 0:
+            if 'stats' not in player_data:
+                player_data['stats'] = {}
+            player_data['stats']['casino_winnings'] = player_data['stats'].get('casino_winnings', 0) + net_gain
+            
+            # Check for achievement unlocks
+            player = Player.from_dict(player_data)
+            newly_unlocked = player.check_achievements()
+            player_data = player.to_dict()
+        else:
+            newly_unlocked = []
+        
         user_db.save_user(session_id, player_data)
         
         return create_success_response({
@@ -1633,7 +1694,8 @@ def play_slots():
             "bet": bet,
             "winnings": winnings,
             "net_gain": net_gain,
-            "player_gold": player_data['gold']
+            "player_gold": player_data['gold'],
+            "achievements_unlocked": newly_unlocked
         }, message)
         
     except Exception as e:
@@ -2015,8 +2077,16 @@ def equip_gear():
         if not gear_item:
             return create_error_response("Gear not found in inventory"), 404
         
+        # Convert dict to Gear object if needed
+        from app.models.gear import Gear
+        if isinstance(gear_item, dict):
+            gear_item = Gear.from_dict(gear_item)
+        
         # Equip the gear
         old_gear = player.equip_gear(gear_item)
+        
+        # Check for achievements
+        newly_unlocked = player.check_achievements()
         
         # Save player
         user_db.save_user(session_id, player.to_dict())
@@ -2045,14 +2115,15 @@ def equip_gear():
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
-                'inventory': [item.get_item_info() for item in player.inventory],
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
                 'is_alive': player.is_alive(),
                 'in_battle': player.in_battle,
                 'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
                 'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
                 'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
                 'total_stats': player.get_total_stats()
-            }
+            },
+            'achievements_unlocked': newly_unlocked
         }, message)
         
     except Exception as e:
@@ -2086,6 +2157,9 @@ def unequip_gear():
         if not unequipped_gear:
             return create_error_response(f"No {gear_type} equipped"), 400
         
+        # Check for achievements (in case unequipping triggers something)
+        newly_unlocked = player.check_achievements()
+        
         # Save player
         user_db.save_user(session_id, player.to_dict())
         
@@ -2106,14 +2180,15 @@ def unequip_gear():
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
-                'inventory': [item.get_item_info() for item in player.inventory],
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
                 'is_alive': player.is_alive(),
                 'in_battle': player.in_battle,
                 'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
                 'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
                 'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
                 'total_stats': player.get_total_stats()
-            }
+            },
+            'achievements_unlocked': newly_unlocked
         }, f"Unequipped {unequipped_gear.name}")
         
     except Exception as e:
@@ -2151,3 +2226,106 @@ def detailed_health_check():
         
     except Exception as e:
         return create_error_response(f"Health check failed: {str(e)}"), 500
+
+
+@bp.route('/player/achievements', methods=['GET'])
+def get_achievements():
+    """
+    Get all achievements and player's progress.
+    
+    Expected query params:
+        session_id: player session ID
+    """
+    try:
+        session_id = request.args.get('session_id')
+        if not session_id:
+            return create_error_response("Missing session_id"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Ensure player has achievements and stats attributes (for backwards compatibility)
+        if not hasattr(player, 'achievements') or player.achievements is None:
+            player.achievements = {}
+        if not hasattr(player, 'stats') or player.stats is None:
+            player.stats = {
+                "enemies_defeated": 0,
+                "rooms_visited": 0,
+                "items_purchased": 0,
+                "casino_winnings": 0,
+                "allies_recruited": 0,
+                "critical_hits_this_battle": 0,
+                "damage_taken_this_battle": 0,
+                "highest_floor_reached": 0
+            }
+        
+        # Get all achievements with progress
+        from app.models.achievement import Achievement
+        all_achievements = Achievement.get_all()
+        
+        # Create stats dict with gold included for wealth achievements
+        stats_with_gold = player.stats.copy()
+        stats_with_gold['gold'] = player.gold
+        
+        achievement_data = []
+        for achievement in all_achievements:
+            is_unlocked = achievement['id'] in player.achievements
+            progress = Achievement.check_progress(achievement, stats_with_gold)
+            
+            # Handle hidden achievements
+            is_hidden = achievement.get('hidden', False)
+            
+            if is_hidden and not is_unlocked:
+                # Show hint version for locked hidden achievements
+                achievement_data.append({
+                    "id": achievement['id'],
+                    "name": achievement['name'],
+                    "description": achievement.get('hint', '???'),
+                    "emoji": '❓',
+                    "reward": achievement['reward'],
+                    "type": achievement['type'],
+                    "requirement": achievement['requirement'],
+                    "unlocked": False,
+                    "unlocked_at": None,
+                    "progress": progress,
+                    "hidden": True
+                })
+            else:
+                # Show full info for unlocked or non-hidden achievements
+                achievement_data.append({
+                    "id": achievement['id'],
+                    "name": achievement['name'],
+                    "description": achievement['description'],
+                    "emoji": achievement['emoji'],
+                    "reward": achievement['reward'],
+                    "type": achievement['type'],
+                    "requirement": achievement['requirement'],
+                    "unlocked": is_unlocked,
+                    "unlocked_at": player.achievements.get(achievement['id']) if is_unlocked else None,
+                    "progress": progress,
+                    "hidden": is_hidden
+                })
+        
+        # Sort: unlocked first, then by type, then by progress
+        achievement_data.sort(key=lambda x: (not x['unlocked'], x['type'], -x['progress']))
+        
+        return create_success_response({
+            "achievements": achievement_data,
+            "total_unlocked": len(player.achievements),
+            "total_achievements": len(all_achievements),
+            "total_rewards_earned": sum(
+                Achievement.get_achievement(aid)['reward']
+                for aid in player.achievements 
+                if Achievement.get_achievement(aid)
+            )
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return create_error_response(f"Error getting achievements: {str(e)}"), 500

@@ -2115,6 +2115,9 @@ async function movePlayer(direction) {
     if (result.data.encounter_occurred && result.data.encounter_result) {
         handleEncounter(result.data.encounter_result);
     }
+    
+    // Check for achievement unlocks
+    checkAchievementsUnlocked(result);
 }
 
 // Handle encounter
@@ -2450,6 +2453,9 @@ async function performCombatAction(action, useAlly = false, allyIndex = null, ti
                 console.log('DEBUG performCombatAction: Battle is ending');
                 if (combatData.victory) {
                     addLogEntry(`🎉 Victory! Gained ${combatData.gold_reward || 0} gold and ${combatData.exp_reward || 0} XP!`, 'success');
+                    
+                    // Check for achievement unlocks
+                    checkAchievementsUnlocked(result);
                     
                     // Victory particles
                     const combatArea = document.querySelector('.combat-area');
@@ -2994,6 +3000,9 @@ async function purchaseShopItem(itemName, price) {
     
     addLogEntry(result.message, 'success');
     
+    // Check for achievement unlocks
+    checkAchievementsUnlocked(result);
+    
     // Animate gold change
     animateGoldChange(elements.playerGold);
     
@@ -3389,6 +3398,9 @@ async function spinSlots() {
     updatePlayerDisplay();
     
     addLogEntry(result.message, netGain > 0 ? 'success' : 'info');
+    
+    // Check for achievement unlocks
+    checkAchievementsUnlocked(result);
     
     // Re-enable button
     if (spinBtn) {
@@ -4275,3 +4287,130 @@ function loadSettings() {
 document.addEventListener('DOMContentLoaded', function() {
     loadSettings();
 });
+
+// ==========================================
+// ACHIEVEMENTS SYSTEM
+// ==========================================
+
+async function showAchievements() {
+    // Check if game is started
+    if (!gameState.sessionId) {
+        addLogEntry('Please start a game first!', 'warning');
+        return;
+    }
+    
+    const panel = document.getElementById('achievements-panel');
+    panel.classList.remove('hidden');
+    
+    // Load achievements data
+    try {
+        const response = await fetch(`/api/player/achievements?session_id=${gameState.sessionId}`);
+        const result = await response.json();
+        
+        console.log('Achievements response:', result);
+        
+        if (!result.error && result.data) {
+            displayAchievements(result.data);
+        } else {
+            console.error('Achievement load failed:', result);
+            document.getElementById('achievements-list').innerHTML = `<p>Error loading achievements: ${result.message || 'Unknown error'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error fetching achievements:', error);
+        document.getElementById('achievements-list').innerHTML = '<p>Error loading achievements</p>';
+    }
+}
+
+function hideAchievements() {
+    const panel = document.getElementById('achievements-panel');
+    panel.classList.add('hidden');
+}
+
+function displayAchievements(data) {
+    const summary = document.getElementById('achievements-summary');
+    const list = document.getElementById('achievements-list');
+    
+    // Update summary
+    summary.innerHTML = `
+        <p><strong>Unlocked:</strong> ${data.total_unlocked} / ${data.total_achievements}</p>
+        <p><strong>Total Rewards Earned:</strong> ${data.total_rewards_earned} 💰</p>
+    `;
+    
+    // Display achievements
+    list.innerHTML = '';
+    data.achievements.forEach(achievement => {
+        const card = document.createElement('div');
+        card.className = `achievement-card ${achievement.unlocked ? 'unlocked' : ''}`;
+        
+        const progressPercent = Math.round(achievement.progress * 100);
+        const progressText = achievement.unlocked ? 'Completed!' : `${progressPercent}%`;
+        
+        let unlockedDateHTML = '';
+        if (achievement.unlocked && achievement.unlocked_at) {
+            const date = new Date(achievement.unlocked_at);
+            unlockedDateHTML = `<p class="achievement-unlocked-date">Unlocked: ${date.toLocaleDateString()}</p>`;
+        }
+        
+        card.innerHTML = `
+            <div class="achievement-emoji">${achievement.emoji}</div>
+            <div class="achievement-info">
+                <div class="achievement-name">${achievement.name}</div>
+                <div class="achievement-description">${achievement.description}</div>
+                <div class="achievement-reward">Reward: ${achievement.reward} 💰</div>
+                ${!achievement.unlocked ? `
+                    <div class="achievement-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${progressPercent}%">
+                                ${progressText}
+                            </div>
+                        </div>
+                    </div>
+                ` : unlockedDateHTML}
+            </div>
+        `;
+        
+        list.appendChild(card);
+    });
+}
+
+function showAchievementNotification(achievement) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = 'achievement-notification';
+    notification.innerHTML = `
+        <div class="achievement-notification-content">
+            <div class="achievement-notification-emoji">${achievement.emoji}</div>
+            <div class="achievement-notification-info">
+                <div class="achievement-notification-title">Achievement Unlocked!</div>
+                <div class="achievement-notification-name">${achievement.name}</div>
+                <div class="achievement-notification-reward">+${achievement.reward} 💰</div>
+            </div>
+        </div>
+    `;
+    
+    // Add to body
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 100);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+            notification.remove();
+        }, 500);
+    }, 5000);
+}
+
+// Check for achievements after actions and show notifications
+function checkAchievementsUnlocked(response) {
+    if (response.data && response.data.achievements_unlocked && response.data.achievements_unlocked.length > 0) {
+        response.data.achievements_unlocked.forEach(achievement => {
+            showAchievementNotification(achievement);
+        });
+    }
+}
+

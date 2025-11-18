@@ -58,6 +58,21 @@
             </div>
         </div>
 
+        <!-- Achievements Panel -->
+        <div id="achievements-panel" class="achievements-panel hidden">
+            <div class="achievements-content">
+                <button class="close-modal-btn" onclick="hideAchievements()">✕</button>
+                <h3>🏆 Achievements</h3>
+                <div id="achievements-summary" class="achievements-summary">
+                    <p>Loading achievements...</p>
+                </div>
+                <div id="achievements-list" class="achievements-list">
+                    <!-- Achievements will be populated here -->
+                </div>
+                <button class="btn btn-primary" onclick="hideAchievements()">Close</button>
+            </div>
+        </div>
+
         <!-- Main Game Area -->
         <div class="game-content">
             <!-- Start Screen -->
@@ -260,6 +275,11 @@
                             <button id="move-up" class="btn btn-special" disabled>🔼 Ascend Staircase</button>
                             <button id="enter-shop" class="btn btn-shop hidden">🏪 Enter Shop</button>
                             <button id="enter-casino" class="btn btn-casino hidden">🎰 Enter Casino</button>
+                        </div>
+
+                        <!-- Achievements Panel -->
+                        <div class="achievements-button-panel card">
+                            <button id="achievements-btn-ingame" class="btn btn-achievements" onclick="showAchievements()">🏆 View Achievements</button>
                         </div>
                     </div>
 
