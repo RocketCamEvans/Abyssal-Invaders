@@ -780,8 +780,11 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         # Check for critical hit
         is_critical = self._check_critical_hit()
         
-        # Get effective attack power (after weakened reduction)
-        effective_attack = self._get_effective_stat(player, 'attack_power', player.attack_power)
+        # Get total stats including gear bonuses
+        total_stats = player.get_total_stats()
+        
+        # Get effective attack power (after weakened reduction, using total with gear)
+        effective_attack = self._get_effective_stat(player, 'attack_power', total_stats['attack']['total'])
         base_damage = effective_attack
         
         if is_critical:
@@ -795,14 +798,14 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             damage = int(damage * timing_multiplier)
             print(f"DEBUG COMBAT: Applied timing multiplier {timing_multiplier}x, damage after timing: {damage}")
         
-        # Apply elemental effectiveness
-        player_element = getattr(player, 'element', 'intern')
+        # Apply elemental effectiveness using player's attack element (from weapon)
+        player_attack_element = getattr(player, 'attack_element', 'intern')
         enemy_element = getattr(enemy, 'element', 'intern')
-        element_multiplier = get_element_effectiveness(player_element, enemy_element)
+        element_multiplier = get_element_effectiveness(player_attack_element, enemy_element)
         
         if element_multiplier != 1.0:
             damage = int(damage * element_multiplier)
-            print(f"DEBUG COMBAT: Applied element multiplier {element_multiplier}x ({player_element} vs {enemy_element}), final damage: {damage}")
+            print(f"DEBUG COMBAT: Applied element multiplier {element_multiplier}x ({player_attack_element} vs {enemy_element}), final damage: {damage}")
         
         enemy.take_damage(damage)
         
@@ -818,7 +821,7 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
             else:
                 timing_desc = " *Poorly timed.*"
         
-        element_desc = get_element_matchup_text(player_element, enemy_element) or ""
+        element_desc = get_element_matchup_text(player_attack_element, enemy_element) or ""
         if element_desc:
             element_desc = " " + element_desc
         
@@ -908,17 +911,17 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         
         damage = calculate_damage_with_variance(base_damage)
         
-        # Apply elemental effectiveness (enemy attacking player)
+        # Apply elemental effectiveness (enemy attacking player, use player's defense element from armor)
         enemy_element = getattr(enemy, 'element', 'intern')
-        player_element = getattr(player, 'element', 'intern')
-        element_multiplier = get_element_effectiveness(enemy_element, player_element)
+        player_defense_element = getattr(player, 'defense_element', 'intern')
+        element_multiplier = get_element_effectiveness(enemy_element, player_defense_element)
         damage = int(damage * element_multiplier)
         
         player.take_damage(damage)
         
         # Generate description with elemental effectiveness
         base_description = f"{enemy.name} attacks {player.name} for {damage} damage!"
-        element_desc = get_element_matchup_text(enemy_element, player_element)
+        element_desc = get_element_matchup_text(enemy_element, player_defense_element)
         if element_desc:
             base_description += f" {element_desc}"
         
@@ -1062,7 +1065,9 @@ Describe what made this hit critical (MAX 150 chars). Be dramatic and exciting, 
         Returns:
             int: Damage amount
         """
-        base_damage = player.attack_power
+        # Get total stats including gear bonuses
+        total_stats = player.get_total_stats()
+        base_damage = total_stats['attack']['total']
         
         # Add some randomness to attacks
         damage = calculate_damage_with_variance(base_damage, 0.25)

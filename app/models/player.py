@@ -25,7 +25,15 @@ class Player:
         self.visited_rooms = set()
         self.allies = []  # List of ally objects that can help in combat
         self.inventory = []  # List of item objects
-        self.element = "intern"  # Office department element (starts as intern)
+        
+        # Dual element system for gear
+        self.attack_element = "intern"  # Element for attacking (from weapon)
+        self.defense_element = "intern"  # Element for defending (from armor)
+        
+        # Equipped gear slots
+        self.equipped_weapon = None  # Gear object
+        self.equipped_armor = None   # Gear object
+        self.equipped_accessory = None  # Gear object
         
         # Experience system
         self.experience = 0
@@ -57,7 +65,10 @@ class Player:
         Returns:
             bool: True if player is still alive, False if dead
         """
-        actual_damage = max(0, damage - self.defense)
+        # Use total defense including gear bonuses
+        total_stats = self.get_total_stats()
+        total_defense = total_stats['defense']['total']
+        actual_damage = max(0, damage - total_defense)
         self.health = max(0, self.health - actual_damage)
         return self.health > 0
     
@@ -171,6 +182,129 @@ class Player:
             if item.item_id == item_id:
                 return item
         return None
+    
+    def equip_gear(self, gear):
+        """
+        Equip a piece of gear.
+        
+        Args:
+            gear: Gear object to equip
+            
+        Returns:
+            dict: Result with success status and message
+        """
+        from .gear import Gear
+        
+        if not isinstance(gear, Gear):
+            return {"success": False, "message": "Invalid gear object."}
+        
+        # Unequip current gear in that slot if any
+        old_gear = None
+        if gear.gear_type == "weapon":
+            old_gear = self.equipped_weapon
+            self.equipped_weapon = gear
+            self.attack_element = gear.element or "intern"
+        elif gear.gear_type == "armor":
+            old_gear = self.equipped_armor
+            self.equipped_armor = gear
+            self.defense_element = gear.element or "intern"
+        elif gear.gear_type == "accessory":
+            old_gear = self.equipped_accessory
+            self.equipped_accessory = gear
+        else:
+            return {"success": False, "message": "Unknown gear type."}
+        
+        # Remove gear from inventory
+        for i, inv_item in enumerate(self.inventory):
+            if hasattr(inv_item, 'gear_id') and inv_item.gear_id == gear.gear_id:
+                self.inventory.pop(i)
+                break
+        
+        # Add old gear back to inventory if there was one
+        if old_gear:
+            self.inventory.append(old_gear)
+        
+        return {
+            "success": True,
+            "message": f"Equipped {gear.name}!",
+            "old_gear": old_gear.to_dict() if old_gear else None
+        }
+    
+    def unequip_gear(self, gear_type: str):
+        """
+        Unequip gear from a slot.
+        
+        Args:
+            gear_type: Type of gear to unequip ("weapon", "armor", "accessory")
+            
+        Returns:
+            dict: Result with success status and message
+        """
+        gear = None
+        if gear_type == "weapon":
+            gear = self.equipped_weapon
+            self.equipped_weapon = None
+            self.attack_element = "intern"
+        elif gear_type == "armor":
+            gear = self.equipped_armor
+            self.equipped_armor = None
+            self.defense_element = "intern"
+        elif gear_type == "accessory":
+            gear = self.equipped_accessory
+            self.equipped_accessory = None
+        
+        if gear:
+            self.inventory.append(gear)
+            return {
+                "success": True,
+                "message": f"Unequipped {gear.name}.",
+                "gear": gear.to_dict()
+            }
+        
+        return {"success": False, "message": f"No {gear_type} equipped."}
+    
+    def get_total_stats(self):
+        """
+        Calculate total stats including gear bonuses.
+        
+        Returns:
+            dict: Total stats with base and bonus breakdown
+        """
+        base_attack = self.attack_power
+        base_defense = self.defense
+        base_speed = self.speed
+        
+        gear_attack = 0
+        gear_defense = 0
+        gear_speed = 0
+        
+        if self.equipped_weapon:
+            gear_attack += self.equipped_weapon.attack_bonus
+        if self.equipped_armor:
+            gear_defense += self.equipped_armor.defense_bonus
+            gear_speed += self.equipped_armor.speed_bonus
+        if self.equipped_accessory:
+            gear_attack += self.equipped_accessory.attack_bonus
+            gear_defense += self.equipped_accessory.defense_bonus
+            gear_speed += self.equipped_accessory.speed_bonus
+        
+        return {
+            "attack": {
+                "base": base_attack,
+                "gear": gear_attack,
+                "total": base_attack + gear_attack
+            },
+            "defense": {
+                "base": base_defense,
+                "gear": gear_defense,
+                "total": base_defense + gear_defense
+            },
+            "speed": {
+                "base": base_speed,
+                "gear": gear_speed,
+                "total": base_speed + gear_speed
+            }
+        }
     
     def use_ally_attack(self, ally_index: int) -> Optional[int]:
         """
@@ -428,7 +562,11 @@ class Player:
             "inventory": [item.to_dict() for item in self.inventory],
             "experience": self.experience,
             "level": self.level,
-            "element": self.element,
+            "attack_element": self.attack_element,
+            "defense_element": self.defense_element,
+            "equipped_weapon": self.equipped_weapon.to_dict() if self.equipped_weapon else None,
+            "equipped_armor": self.equipped_armor.to_dict() if self.equipped_armor else None,
+            "equipped_accessory": self.equipped_accessory.to_dict() if self.equipped_accessory else None,
             "in_battle": self.in_battle,
             "current_enemy": self.current_enemy,
             "current_ally": self.current_ally,
@@ -454,6 +592,7 @@ class Player:
         """
         from .ally import Ally  # Import here to avoid circular imports
         from .item import Item  # Import here to avoid circular imports
+        from .gear import Gear  # Import here to avoid circular imports
         
         player = cls(session_id=data["session_id"], name=data["name"])
         player.health = data["health"]
@@ -462,12 +601,39 @@ class Player:
         player.attack_power = data["attack_power"]
         player.defense = data["defense"]
         player.speed = data.get("speed", 10)  # Default to 10 for backward compatibility
-        player.element = data.get("element", "intern")  # Default to intern for backward compatibility
+        
+        # Handle dual element system with backward compatibility
+        if "attack_element" in data and "defense_element" in data:
+            # New dual element system
+            player.attack_element = data["attack_element"]
+            player.defense_element = data["defense_element"]
+        elif "element" in data:
+            # Old single element system - convert to dual
+            old_element = data["element"]
+            player.attack_element = old_element
+            player.defense_element = old_element
+        else:
+            # No element data - default to intern
+            player.attack_element = "intern"
+            player.defense_element = "intern"
+        
         player.floor = data["floor"]
         player.room_id = data["room_id"]
         player.visited_rooms = set(data["visited_rooms"])
         player.allies = [Ally.from_dict(ally_data) for ally_data in data["allies"]]
-        player.inventory = [Item.from_dict(item_data) for item_data in data.get("inventory", [])]
+        
+        # Load inventory - handle both Item and Gear objects
+        player.inventory = []
+        for item_data in data.get("inventory", []):
+            if "gear_type" in item_data:  # This is a Gear object
+                player.inventory.append(Gear.from_dict(item_data))
+            else:  # This is an Item object
+                player.inventory.append(Item.from_dict(item_data))
+        
+        # Load equipped gear (with defaults for backward compatibility)
+        player.equipped_weapon = Gear.from_dict(data["equipped_weapon"]) if data.get("equipped_weapon") else None
+        player.equipped_armor = Gear.from_dict(data["equipped_armor"]) if data.get("equipped_armor") else None
+        player.equipped_accessory = Gear.from_dict(data["equipped_accessory"]) if data.get("equipped_accessory") else None
         
         # Experience system (with defaults for backward compatibility)
         player.experience = data.get("experience", 0)

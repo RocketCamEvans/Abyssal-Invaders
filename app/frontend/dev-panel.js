@@ -154,6 +154,9 @@ async function devMakeRequest(endpoint, data = {}) {
             if (typeof updatePlayerDisplay === 'function') {
                 updatePlayerDisplay();
             }
+            if (typeof updateInventoryDisplay === 'function') {
+                updateInventoryDisplay();
+            }
             if (typeof updateRoomDisplay === 'function') {
                 updateRoomDisplay();
             }
@@ -304,6 +307,20 @@ async function devSpawnRoom() {
     });
 }
 
+async function devSpawnCasino() {
+    const result = await devMakeRequest('/dev/spawn-casino', {});
+    
+    // Update gameState with the new room info
+    if (result && result.data && result.data.room_info) {
+        window.gameState.currentRoom = result.data.room_info;
+        
+        // Force update the room display
+        if (typeof updateRoomDisplay === 'function') {
+            updateRoomDisplay();
+        }
+    }
+}
+
 // Ally functions
 async function devGiveAlly() {
     const allyName = document.getElementById('dev-ally-name').value;
@@ -358,3 +375,75 @@ async function devInflictAilment() {
         severity: parseInt(severity)
     });
 }
+
+// Inventory functions
+async function devAddItem() {
+    const itemType = document.getElementById('dev-item-type').value;
+    const quantity = document.getElementById('dev-item-quantity').value;
+
+    const result = await devMakeRequest('/dev/add-item', {
+        item_type: itemType,
+        quantity: parseInt(quantity)
+    });
+
+    if (result && result.success) {
+        devLog(`Added ${quantity}x ${itemType} to inventory`, 'success');
+    }
+}
+
+async function devAddGear() {
+    const gearType = document.getElementById('dev-gear-type').value;
+    const floor = document.getElementById('dev-gear-floor').value;
+    const quantity = document.getElementById('dev-gear-quantity').value;
+
+    const result = await devMakeRequest('/dev/add-gear', {
+        gear_type: gearType,
+        floor: parseInt(floor),
+        quantity: parseInt(quantity)
+    });
+
+    if (result && result.success) {
+        devLog(`Added ${quantity}x ${gearType} (floor ${floor}) to inventory`, 'success');
+    }
+}
+
+async function devClearInventory() {
+    if (!confirm('Are you sure you want to clear all inventory items?')) {
+        return;
+    }
+
+    const result = await devMakeRequest('/dev/clear-inventory', {});
+
+    if (result && result.success) {
+        devLog('Cleared all inventory items', 'success');
+    }
+}
+
+async function devShowInventory() {
+    if (!window.gameState || !window.gameState.player) {
+        devLog('No active game session', 'error');
+        return;
+    }
+
+    const inventory = window.gameState.player.inventory || [];
+    
+    devLog('=== INVENTORY ===', 'info');
+    devLog(`Total items: ${inventory.length}`, 'info');
+    
+    if (inventory.length === 0) {
+        devLog('Inventory is empty', 'warning');
+    } else {
+        inventory.forEach((item, index) => {
+            if (item.gear_type) {
+                // This is gear
+                devLog(`${index + 1}. [GEAR] ${item.name} (${item.gear_type}, ${item.rarity})`, 'success');
+            } else {
+                // This is an item
+                devLog(`${index + 1}. [ITEM] ${item.name} (${item.type})`, 'success');
+            }
+        });
+    }
+    
+    devLog('================', 'info');
+}
+

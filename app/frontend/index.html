@@ -7,12 +7,56 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+    <!-- Floating particles background -->
+    <div class="particles">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+    
     <div class="game-container">
         <!-- Header -->
         <header class="game-header">
             <h1>⚔️ ABYSSAL INVADERS ⚔️</h1>
             <p class="subtitle">Delve into the depths of darkness</p>
+            <button id="settings-btn" class="settings-btn" onclick="toggleSettings()">⚙️ Settings</button>
         </header>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel hidden">
+            <div class="settings-content">
+                <h3>⚙️ Game Settings</h3>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="toggle-particles" checked onchange="toggleParticles()" />
+                        <span>Enable Particle Effects</span>
+                    </label>
+                    <p class="setting-description">Floating background particles (disable to improve performance)</p>
+                </div>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="toggle-animations" checked onchange="toggleAnimations()" />
+                        <span>Enable Animations</span>
+                    </label>
+                    <p class="setting-description">Visual effects and transitions</p>
+                </div>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="toggle-background-pattern" checked onchange="toggleBackgroundPattern()" />
+                        <span>Enable Background Pattern</span>
+                    </label>
+                    <p class="setting-description">Animated diagonal pattern (disable to improve performance)</p>
+                </div>
+                <button class="btn btn-primary" onclick="toggleSettings()">Close</button>
+            </div>
+        </div>
 
         <!-- Main Game Area -->
         <div class="game-content">
@@ -56,7 +100,8 @@
                                 <img id="player-avatar" class="player-avatar" src="" alt="Player Avatar" />
                                 <h3>
                                     <span id="player-name-display">Adventurer</span> 
-                                    <span id="player-element" class="element-badge"></span>
+                                    <span id="player-attack-element" class="element-badge"></span>
+                                    <span id="player-defense-element" class="element-badge"></span>
                                     <span id="player-ailments" class="ailments-display"></span>
                                 </h3>
                             </div>
@@ -86,14 +131,20 @@
                             <div class="stat-row">
                                 <span class="stat-label">🗡️ Attack:</span>
                                 <span id="player-attack" class="stat-value">10</span>
+                                <span id="player-attack-modifier" class="stat-modifier"></span>
                             </div>
                             <div class="stat-row">
                                 <span class="stat-label">🛡️ Defense:</span>
                                 <span id="player-defense" class="stat-value">5</span>
+                                <span id="player-defense-modifier" class="stat-modifier"></span>
                             </div>
                             <div class="stat-row">
                                 <span class="stat-label">⚡ Speed:</span>
                                 <span id="player-speed" class="stat-value">10</span>
+                                <span id="player-speed-modifier" class="stat-modifier"></span>
+                            </div>
+                            <div class="gear-row">
+                                <button id="open-gear-menu-btn" class="btn btn-secondary">⚔️ Equipment</button>
                             </div>
                         </div>
 
@@ -243,6 +294,69 @@
                                 <p><strong>Fleeing:</strong> Escape danger but lose 50% of your gold</p>
                                 <p><strong>Stairs:</strong> Descend to deeper, more dangerous floors</p>
                                 <p><strong>Death:</strong> Game over - submit your score!</p>
+                                
+                                <h4 style="margin-top: 20px; margin-bottom: 10px;">⚔️ Type Effectiveness Chart</h4>
+                                <p style="font-size: 0.9em; margin-bottom: 10px;">
+                                    <span style="color: #2ecc71;">✓ Strong Against (+25%)</span> | 
+                                    <span style="color: #e74c3c;">✗ Weak Against (-20%)</span>
+                                </p>
+                                <div class="type-chart">
+                                    <div class="type-row">
+                                        <div class="type-name">📊 Accounting</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ Marketing, HR</span>
+                                            <span class="weak">✗ IT, Management</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">💻 IT</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ Accounting, Sales</span>
+                                            <span class="weak">✗ HR, Marketing</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">📱 Marketing</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ IT, Legal</span>
+                                            <span class="weak">✗ Accounting, Management</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">👔 HR</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ IT, Management</span>
+                                            <span class="weak">✗ Accounting, Legal</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">💼 Sales</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ HR, Legal</span>
+                                            <span class="weak">✗ IT, Accounting</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">⚖️ Legal</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ Accounting, Sales</span>
+                                            <span class="weak">✗ Marketing, Management</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">👨‍💼 Management</div>
+                                        <div class="type-matchups">
+                                            <span class="strong">✓ Marketing, Sales</span>
+                                            <span class="weak">✗ HR, IT</span>
+                                        </div>
+                                    </div>
+                                    <div class="type-row">
+                                        <div class="type-name">☕ Intern</div>
+                                        <div class="type-matchups">
+                                            <span style="color: #95a5a6;">Neutral to all types</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -411,12 +525,21 @@
                         <button class="modal-close">&times;</button>
                     </div>
                     <div class="casino-info">
-                        <p class="casino-greeting">"Try your luck at Blackjack! Place your bets..."</p>
+                        <p class="casino-greeting">"Welcome! Choose your game of chance..."</p>
                         <p class="casino-gold">💰 Your Gold: <span id="casino-player-gold">0</span></p>
                     </div>
                     
-                    <!-- Bet Entry -->
-                    <div id="casino-bet-screen" class="casino-screen">
+                    <!-- Game Selection Menu -->
+                    <div id="casino-game-menu" class="casino-screen">
+                        <h3>Select a Game</h3>
+                        <div id="casino-game-list" class="casino-game-list">
+                            <!-- Games will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- Bet Entry (for Blackjack) -->
+                    <div id="casino-bet-screen" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
                         <div class="bet-input-section">
                             <label for="bet-amount">Enter Bet Amount:</label>
                             <input type="number" id="bet-amount" min="1" placeholder="Enter bet" />
@@ -426,6 +549,7 @@
 
                     <!-- Blackjack Game -->
                     <div id="casino-game-screen" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
                         <div class="blackjack-table">
                             <div class="dealer-section">
                                 <h3>Dealer</h3>
@@ -447,6 +571,86 @@
                         <div id="game-message" class="game-message"></div>
                         <button id="new-hand-btn" class="btn btn-success hidden">New Hand</button>
                     </div>
+                    
+                    <!-- Slots Game -->
+                    <div id="casino-slots-game" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
+                        <h3>🎰 Slot Machine</h3>
+                        <div class="slots-reels" id="slots-reels">💰 💰 💰</div>
+                        <div class="bet-input-section">
+                            <label for="slots-bet">Bet Amount:</label>
+                            <input type="number" id="slots-bet" min="1" placeholder="Enter bet" />
+                            <button id="spin-slots-btn" class="btn btn-primary" onclick="spinSlots()">Spin!</button>
+                        </div>
+                        <div id="slots-result" class="game-result"></div>
+                    </div>
+                    
+                    <!-- Roulette Game -->
+                    <div id="casino-roulette-game" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
+                        <h3>🎡 Roulette</h3>
+                        <div id="roulette-result" class="game-result"></div>
+                        <div class="bet-input-section">
+                            <label for="roulette-bet">Bet Amount:</label>
+                            <input type="number" id="roulette-bet" min="1" placeholder="Enter bet" />
+                            
+                            <label for="roulette-bet-type">Bet On:</label>
+                            <select id="roulette-bet-type" onchange="updateRouletteNumberInput()">
+                                <option value="red">Red (2x)</option>
+                                <option value="black">Black (2x)</option>
+                                <option value="odd">Odd (2x)</option>
+                                <option value="even">Even (2x)</option>
+                                <option value="number">Specific Number (35x)</option>
+                            </select>
+                            
+                            <div id="roulette-number-group" class="hidden">
+                                <label for="roulette-number">Number (0-36):</label>
+                                <input type="number" id="roulette-number" min="0" max="36" placeholder="0-36" />
+                            </div>
+                            
+                            <button id="spin-roulette-btn" class="btn btn-primary" onclick="spinRoulette()">Spin!</button>
+                        </div>
+                    </div>
+
+                    <!-- Pachinko Game -->
+                    <div id="casino-pachinko-game" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
+                        <h3>🎪 Pachinko</h3>
+                        <div id="pachinko-display" class="pachinko-display">💰 🎰 💎 ⭐ 🎪</div>
+                        <div class="bet-input-section">
+                            <label for="pachinko-balls">Number of Balls (1-50):</label>
+                            <input type="number" id="pachinko-balls" value="10" min="1" max="50" />
+                            <button id="drop-balls-btn" class="btn btn-primary" onclick="dropBalls()">Drop Balls!</button>
+                        </div>
+                        <div id="pachinko-result" class="game-result"></div>
+                    </div>
+
+                    <!-- Dice Game -->
+                    <div id="casino-dice-game" class="casino-screen hidden">
+                        <button class="btn btn-secondary" onclick="showCasinoGameMenu()">← Back to Games</button>
+                        <h3>🎲 Dice Game</h3>
+                        <div id="dice-display" class="dice-display">🎲 ? + ? = ? 🎲</div>
+                        <div class="bet-input-section">
+                            <label for="dice-bet">Bet Amount:</label>
+                            <input type="number" id="dice-bet" value="10" min="1" />
+                            
+                            <label for="dice-prediction">Prediction:</label>
+                            <select id="dice-prediction" onchange="updateDiceNumberInput()">
+                                <option value="high">High (8-12) - 2x</option>
+                                <option value="low">Low (2-6) - 2x</option>
+                                <option value="seven">Seven - 4x</option>
+                                <option value="number">Specific Number - 4x to 30x</option>
+                            </select>
+                            
+                            <div id="dice-number-group" class="hidden">
+                                <label for="dice-number">Number (2-12):</label>
+                                <input type="number" id="dice-number" min="2" max="12" placeholder="2-12" />
+                            </div>
+                            
+                            <button id="roll-dice-btn" class="btn btn-primary" onclick="rollDiceGame()">Roll!</button>
+                        </div>
+                        <div id="dice-result" class="game-result"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -463,15 +667,57 @@
             <img id="loading-sprite" class="loading-sprite hidden" src="" alt="Enemy" />
             <div class="spinner"></div>
             <p id="loading-message">Loading...</p>
+            </div>
+        </div>
+
+    <!-- Gear Equipment Modal -->
+    <div id="gear-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚔️ Equipment</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="gear-modal-body">
+                <div class="equipped-gear-section">
+                    <h3>Currently Equipped</h3>
+                    <div class="gear-slots">
+                        <div class="gear-slot" id="weapon-slot">
+                            <div class="gear-slot-label">🗡️ Weapon</div>
+                            <div class="gear-slot-content" id="weapon-slot-content">
+                                <p class="empty-slot">No weapon equipped</p>
+                            </div>
+                            <button class="btn btn-danger gear-unequip-btn" id="unequip-weapon-btn" style="display: none;">Unequip</button>
+                        </div>
+                        <div class="gear-slot" id="armor-slot">
+                            <div class="gear-slot-label">🛡️ Armor</div>
+                            <div class="gear-slot-content" id="armor-slot-content">
+                                <p class="empty-slot">No armor equipped</p>
+                            </div>
+                            <button class="btn btn-danger gear-unequip-btn" id="unequip-armor-btn" style="display: none;">Unequip</button>
+                        </div>
+                        <div class="gear-slot" id="accessory-slot">
+                            <div class="gear-slot-label">💍 Accessory</div>
+                            <div class="gear-slot-content" id="accessory-slot-content">
+                                <p class="empty-slot">No accessory equipped</p>
+                            </div>
+                            <button class="btn btn-danger gear-unequip-btn" id="unequip-accessory-btn" style="display: none;">Unequip</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="gear-inventory-section">
+                    <h3>Gear in Inventory</h3>
+                    <div id="gear-inventory-list" class="gear-inventory-list">
+                        <p class="empty-state">No gear in inventory</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Developer Mode Button (only visible if dev mode enabled) -->
     <button id="dev-mode-btn" class="dev-mode-button hidden" title="Toggle Developer Tools">
         🛠️
-    </button>
-
-    <!-- Developer Panel Overlay -->
+    </button>    <!-- Developer Panel Overlay -->
     <div id="dev-panel" class="dev-panel hidden">
         <div class="dev-panel-header">
             <h2>🛠️ Developer Tools</h2>
@@ -490,6 +736,7 @@
                 <button class="dev-tab" data-tab="battle">Battle</button>
                 <button class="dev-tab" data-tab="room">Room</button>
                 <button class="dev-tab" data-tab="allies">Allies</button>
+                <button class="dev-tab" data-tab="inventory">Inventory</button>
                 <button class="dev-tab" data-tab="ailments">Ailments</button>
             </div>
 
@@ -606,6 +853,7 @@
                     </div>
                 </div>
                 <button onclick="devSpawnRoom()" class="dev-btn dev-btn-primary">Spawn Room</button>
+                <button onclick="devSpawnCasino()" class="dev-btn dev-btn-warning">🎰 Convert to Casino</button>
             </div>
 
             <!-- Allies Tab -->
@@ -618,6 +866,63 @@
                 <button onclick="devGiveAlly()" class="dev-btn dev-btn-primary">Give Random Ally</button>
                 <button onclick="devListAllies()" class="dev-btn dev-btn-secondary">Show Available Allies</button>
                 <div id="dev-allies-list" class="dev-allies-list"></div>
+            </div>
+
+            <!-- Inventory Tab -->
+            <div class="dev-tab-content" data-content="inventory">
+                <h3>🎒 Inventory Controls</h3>
+                
+                <div class="dev-section">
+                    <h4>Add Item</h4>
+                    <div class="dev-form-grid">
+                        <div class="dev-form-group">
+                            <label>Item Type</label>
+                            <select id="dev-item-type">
+                                <option value="health_potion">Health Potion</option>
+                                <option value="max_health_boost">Max Health Boost</option>
+                                <option value="attack_boost">Attack Boost</option>
+                                <option value="defense_boost">Defense Boost</option>
+                                <option value="speed_boost">Speed Boost</option>
+                                <option value="gold_bag">Gold Bag</option>
+                                <option value="experience_scroll">Experience Scroll</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-group">
+                            <label>Quantity</label>
+                            <input type="number" id="dev-item-quantity" value="1" min="1" max="99">
+                        </div>
+                    </div>
+                    <button onclick="devAddItem()" class="dev-btn dev-btn-primary">Add Item</button>
+                </div>
+
+                <div class="dev-section" style="margin-top: 20px;">
+                    <h4>Add Gear</h4>
+                    <div class="dev-form-grid">
+                        <div class="dev-form-group">
+                            <label>Gear Type</label>
+                            <select id="dev-gear-type">
+                                <option value="weapon">Weapon</option>
+                                <option value="armor">Armor</option>
+                                <option value="accessory">Accessory</option>
+                                <option value="random">Random</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-group">
+                            <label>Floor Level</label>
+                            <input type="number" id="dev-gear-floor" value="1" min="1" max="20">
+                        </div>
+                        <div class="dev-form-group">
+                            <label>Quantity</label>
+                            <input type="number" id="dev-gear-quantity" value="1" min="1" max="10">
+                        </div>
+                    </div>
+                    <button onclick="devAddGear()" class="dev-btn dev-btn-primary">Add Gear</button>
+                </div>
+
+                <div class="dev-section" style="margin-top: 20px;">
+                    <button onclick="devClearInventory()" class="dev-btn dev-btn-danger">Clear All Inventory</button>
+                    <button onclick="devShowInventory()" class="dev-btn dev-btn-secondary">Show Inventory</button>
+                </div>
             </div>
 
             <!-- Ailments Tab -->

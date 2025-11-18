@@ -218,6 +218,9 @@ function initializeElements() {
         hitBtn: document.getElementById('hit-btn'),
         standBtn: document.getElementById('stand-btn'),
         splitBtn: document.getElementById('split-btn'),
+        
+        // Gear modal elements
+        gearModal: document.getElementById('gear-modal'),
         doubleBtn: document.getElementById('double-btn'),
         gameMessage: document.getElementById('game-message'),
         newHandBtn: document.getElementById('new-hand-btn'),
@@ -548,6 +551,27 @@ function attachEventListeners() {
     // Casino event listeners
     elements.startBlackjackBtn.addEventListener('click', startBlackjack);
     elements.hitBtn.addEventListener('click', blackjackHit);
+    
+    // Gear modal
+    const openGearMenuBtn = document.getElementById('open-gear-menu-btn');
+    if (openGearMenuBtn) {
+        openGearMenuBtn.addEventListener('click', openGearModal);
+    }
+    
+    // Gear unequip buttons
+    const unequipWeaponBtn = document.getElementById('unequip-weapon-btn');
+    const unequipArmorBtn = document.getElementById('unequip-armor-btn');
+    const unequipAccessoryBtn = document.getElementById('unequip-accessory-btn');
+    
+    if (unequipWeaponBtn) {
+        unequipWeaponBtn.addEventListener('click', () => unequipGear('weapon'));
+    }
+    if (unequipArmorBtn) {
+        unequipArmorBtn.addEventListener('click', () => unequipGear('armor'));
+    }
+    if (unequipAccessoryBtn) {
+        unequipAccessoryBtn.addEventListener('click', () => unequipGear('accessory'));
+    }
     elements.standBtn.addEventListener('click', blackjackStand);
     elements.splitBtn.addEventListener('click', blackjackSplit);
     elements.doubleBtn.addEventListener('click', blackjackDouble);
@@ -953,17 +977,27 @@ function updatePlayerDisplay() {
         }
     }
     
-    // Update player element display
-    const playerElementEl = document.getElementById('player-element');
-    if (playerElementEl && gameState.player.element) {
-        const elementEmoji = getElementEmoji(gameState.player.element);
-        const elementName = formatElementName(gameState.player.element);
-        playerElementEl.textContent = `${elementEmoji} ${elementName}`;
-        playerElementEl.className = `element-badge element-${gameState.player.element}`;
-        playerElementEl.title = `Department: ${elementName}`;
+    // Update player element display with dual elements
+    const playerAttackElementEl = document.getElementById('player-attack-element');
+    const playerDefenseElementEl = document.getElementById('player-defense-element');
+    
+    if (playerAttackElementEl && gameState.player.attack_element) {
+        const elementEmoji = getElementEmoji(gameState.player.attack_element);
+        const elementName = formatElementName(gameState.player.attack_element);
+        playerAttackElementEl.textContent = `${elementName}`;
+        playerAttackElementEl.className = `element-badge element-${gameState.player.attack_element}`;
+        playerAttackElementEl.title = `Attack Element: ${elementName}`;
     }
     
-    // Update stats with ailment indicators
+    if (playerDefenseElementEl && gameState.player.defense_element) {
+        const elementEmoji = getElementEmoji(gameState.player.defense_element);
+        const elementName = formatElementName(gameState.player.defense_element);
+        playerDefenseElementEl.textContent = `${elementName}`;
+        playerDefenseElementEl.className = `element-badge element-${gameState.player.defense_element}`;
+        playerDefenseElementEl.title = `Defense Element: ${elementName}`;
+    }
+    
+    // Update stats with gear modifiers and ailment indicators
     const getStatAilmentIndicator = (ailmentType) => {
         if (!gameState.player.ailments) return '';
         for (const ailment of gameState.player.ailments) {
@@ -977,9 +1011,42 @@ function updatePlayerDisplay() {
         return '';
     };
     
-    elements.playerAttack.textContent = (gameState.player.attack_power || 10) + getStatAilmentIndicator('weakened');
-    elements.playerDefense.textContent = (gameState.player.defense || 5) + getStatAilmentIndicator('irradiated');
-    elements.playerSpeed.textContent = (gameState.player.speed || 10) + getStatAilmentIndicator('shackled');
+    // Show base stats with gear modifiers
+    if (gameState.player.total_stats) {
+        const stats = gameState.player.total_stats;
+        
+        elements.playerAttack.textContent = stats.attack.base + getStatAilmentIndicator('weakened');
+        const attackModifierEl = document.getElementById('player-attack-modifier');
+        if (attackModifierEl && stats.attack.gear > 0) {
+            attackModifierEl.textContent = `(+${stats.attack.gear})`;
+            attackModifierEl.className = 'stat-modifier positive';
+        } else if (attackModifierEl) {
+            attackModifierEl.textContent = '';
+        }
+        
+        elements.playerDefense.textContent = stats.defense.base + getStatAilmentIndicator('irradiated');
+        const defenseModifierEl = document.getElementById('player-defense-modifier');
+        if (defenseModifierEl && stats.defense.gear > 0) {
+            defenseModifierEl.textContent = `(+${stats.defense.gear})`;
+            defenseModifierEl.className = 'stat-modifier positive';
+        } else if (defenseModifierEl) {
+            defenseModifierEl.textContent = '';
+        }
+        
+        elements.playerSpeed.textContent = stats.speed.base + getStatAilmentIndicator('shackled');
+        const speedModifierEl = document.getElementById('player-speed-modifier');
+        if (speedModifierEl && stats.speed.gear !== 0) {
+            speedModifierEl.textContent = stats.speed.gear > 0 ? `(+${stats.speed.gear})` : `(${stats.speed.gear})`;
+            speedModifierEl.className = stats.speed.gear > 0 ? 'stat-modifier positive' : 'stat-modifier negative';
+        } else if (speedModifierEl) {
+            speedModifierEl.textContent = '';
+        }
+    } else {
+        // Fallback to old display if total_stats not available
+        elements.playerAttack.textContent = (gameState.player.attack_power || 10) + getStatAilmentIndicator('weakened');
+        elements.playerDefense.textContent = (gameState.player.defense || 5) + getStatAilmentIndicator('irradiated');
+        elements.playerSpeed.textContent = (gameState.player.speed || 10) + getStatAilmentIndicator('shackled');
+    }
     
     // Update allies list
     updateAlliesList();
@@ -1160,12 +1227,38 @@ function updateInventoryDisplay() {
             'legendary': '🟡'
         };
         
+        // Determine icon based on gear type or rarity
+        let itemIcon;
+        if (item.gear_type) {
+            // Gear items use type-specific emojis
+            const gearEmoji = {
+                'weapon': '🗡️',
+                'armor': '🛡️',
+                'accessory': '💍'
+            };
+            itemIcon = gearEmoji[item.gear_type] || '⚪';
+        } else {
+            // Regular items use rarity emoji
+            itemIcon = rarityEmoji[item.rarity] || '⚪';
+        }
+        
         // Create detailed tooltip text
-        const tooltipText = `${item.description || item.name}\n\nEffect: ${item.effect_type || 'unknown'}\nValue: ${item.effect_value || 0}\nRarity: ${item.rarity || 'common'}${item.usable_in_combat ? '\n✓ Can use in combat' : '\n✗ Cannot use in combat'}`;
+        let tooltipText;
+        if (item.gear_type) {
+            // Gear tooltip
+            tooltipText = `${item.description || item.name}\n\nType: ${item.gear_type}\nRarity: ${item.rarity || 'common'}`;
+            if (item.attack_bonus) tooltipText += `\n⚔️ Attack: +${item.attack_bonus}`;
+            if (item.defense_bonus) tooltipText += `\n🛡️ Defense: +${item.defense_bonus}`;
+            if (item.speed_bonus) tooltipText += `\n⚡ Speed: ${item.speed_bonus > 0 ? '+' : ''}${item.speed_bonus}`;
+            if (item.element) tooltipText += `\n🌟 Element: ${item.element}`;
+        } else {
+            // Item tooltip
+            tooltipText = `${item.description || item.name}\n\nEffect: ${item.effect_type || 'unknown'}\nValue: ${item.effect_value || 0}\nRarity: ${item.rarity || 'common'}${item.usable_in_combat ? '\n✓ Can use in combat' : '\n✗ Cannot use in combat'}`;
+        }
         
         return `
             <div class="item-entry" data-tooltip="${tooltipText}" title="${item.description || item.name}">
-                <span class="item-icon">${rarityEmoji[item.rarity] || '⚪'}</span>
+                <span class="item-icon">${itemIcon}</span>
                 <span class="item-name">${item.name}</span>
             </div>
         `;
@@ -2128,12 +2221,12 @@ function showCombatArea() {
             const elementName = formatElementName(gameState.currentEnemy.element);
             enemyElementEl.textContent = `${elementEmoji} ${elementName}`;
             
-            // Apply color-coded effectiveness classes
+            // Apply color-coded effectiveness classes using player's attack element
             let badgeClass = 'element-badge element-badge-neutral';
             let titleText = `Department: ${elementName} - Neutral matchup`;
             
-            if (gameState.player && gameState.player.element) {
-                const advantage = getElementAdvantage(gameState.player.element, gameState.currentEnemy.element);
+            if (gameState.player && gameState.player.attack_element) {
+                const advantage = getElementAdvantage(gameState.player.attack_element, gameState.currentEnemy.element);
                 if (advantage === 'advantage') {
                     badgeClass = 'element-badge element-badge-effective';
                     titleText = `Department: ${elementName} - You have ADVANTAGE! (1.25x damage)`;
@@ -2921,16 +3014,69 @@ async function openCasino() {
         return;
     }
     
+    // Store casino data
+    gameState.casinoGames = result.data.games || [];
+    
     // Update player gold display in casino
     elements.casinoPlayerGold.textContent = result.data.player_gold;
     
-    // Reset casino screens
-    elements.casinoBetScreen.classList.remove('hidden');
-    elements.casinoGameScreen.classList.add('hidden');
-    elements.betAmount.value = '';
+    // Show game selection menu
+    showCasinoGameMenu();
     
     // Show casino modal
     elements.casinoModal.classList.add('active');
+}
+
+// Show casino game selection menu
+function showCasinoGameMenu() {
+    // Hide all screens
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    const slotsGame = document.getElementById('casino-slots-game');
+    if (slotsGame) slotsGame.classList.add('hidden');
+    const rouletteGame = document.getElementById('casino-roulette-game');
+    if (rouletteGame) rouletteGame.classList.add('hidden');
+    
+    // Show game menu
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) {
+        gameMenu.classList.remove('hidden');
+        
+        // Populate game options
+        const gameList = document.getElementById('casino-game-list');
+        if (gameList && gameState.casinoGames) {
+            gameList.innerHTML = gameState.casinoGames.map(game => `
+                <button class="casino-game-option" onclick="selectCasinoGame('${game.id}')">
+                    <div class="game-name">${game.name}</div>
+                    <div class="game-description">${game.description}</div>
+                </button>
+            `).join('');
+        }
+    }
+}
+
+// Select a casino game
+function selectCasinoGame(gameId) {
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) {
+        gameMenu.classList.add('hidden');
+    }
+    
+    // Store selected game
+    gameState.selectedCasinoGame = gameId;
+    
+    // Show appropriate screen based on game
+    if (gameId === 'blackjack') {
+        elements.casinoBetScreen.classList.remove('hidden');
+    } else if (gameId === 'slots') {
+        showSlotsGame();
+    } else if (gameId === 'roulette') {
+        showRouletteGame();
+    } else if (gameId === 'pachinko') {
+        showPachinkoGame();
+    } else if (gameId === 'dice') {
+        showDiceGame();
+    }
 }
 
 // Start a new blackjack game
@@ -3151,6 +3297,471 @@ function displayBlackjackGame(game) {
         }
     }
 }
+
+// ============================================
+// SLOTS GAME FUNCTIONS
+// ============================================
+
+function showSlotsGame() {
+    // Hide all other screens
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) gameMenu.classList.add('hidden');
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    const rouletteGame = document.getElementById('casino-roulette-game');
+    if (rouletteGame) rouletteGame.classList.add('hidden');
+    const pachinkoGame = document.getElementById('casino-pachinko-game');
+    if (pachinkoGame) pachinkoGame.classList.add('hidden');
+    const diceGame = document.getElementById('casino-dice-game');
+    if (diceGame) diceGame.classList.add('hidden');
+    
+    // Show slots screen
+    const slotsContainer = document.getElementById('casino-slots-game');
+    if (slotsContainer) {
+        slotsContainer.classList.remove('hidden');
+        // Clear previous results
+        const resultDisplay = document.getElementById('slots-result');
+        if (resultDisplay) resultDisplay.innerHTML = '';
+    }
+}
+
+async function spinSlots() {
+    const betInput = document.getElementById('slots-bet');
+    const bet = parseInt(betInput.value);
+    
+    if (!bet || bet <= 0) {
+        addLogEntry('Please enter a valid bet amount', 'danger');
+        return;
+    }
+    
+    if (bet > gameState.player.gold) {
+        addLogEntry(`Not enough gold! You have ${gameState.player.gold}`, 'danger');
+        return;
+    }
+    
+    // Disable button during spin
+    const spinBtn = document.getElementById('spin-slots-btn');
+    if (spinBtn) spinBtn.disabled = true;
+    
+    // Add spinning animation
+    const reelsDisplay = document.getElementById('slots-reels');
+    if (reelsDisplay) {
+        reelsDisplay.classList.add('spinning');
+        reelsDisplay.textContent = '🎰 🎰 🎰';
+    }
+    
+    // Wait a bit for animation
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const result = await apiRequest('/casino/slots/spin', 'POST', {
+        session_id: gameState.sessionId,
+        bet: bet
+    });
+    
+    if (result.error) {
+        addLogEntry(`Slots error: ${result.message}`, 'danger');
+        if (spinBtn) spinBtn.disabled = false;
+        if (reelsDisplay) reelsDisplay.classList.remove('spinning');
+        return;
+    }
+    
+    // Display reels
+    if (reelsDisplay) {
+        reelsDisplay.classList.remove('spinning');
+        reelsDisplay.textContent = result.data.reels.join(' ');
+    }
+    
+    // Display result
+    const resultDisplay = document.getElementById('slots-result');
+    const netGain = result.data.net_gain;
+    if (resultDisplay) {
+        const color = netGain > 0 ? 'success' : netGain < 0 ? 'danger' : 'info';
+        resultDisplay.innerHTML = `
+            <div class="${color}">${result.message}</div>
+            <div>Bet: ${result.data.bet} | Won: ${result.data.winnings}</div>
+            <div>Net: ${netGain >= 0 ? '+' : ''}${netGain}</div>
+        `;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = result.data.player_gold;
+    updatePlayerDisplay();
+    
+    addLogEntry(result.message, netGain > 0 ? 'success' : 'info');
+    
+    // Re-enable button
+    if (spinBtn) {
+        spinBtn.disabled = false;
+        console.log('Slots spin button re-enabled');
+    }
+}
+
+// ============================================
+// ROULETTE GAME FUNCTIONS
+// ============================================
+
+function showRouletteGame() {
+    // Hide all other screens
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) gameMenu.classList.add('hidden');
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    const slotsGame = document.getElementById('casino-slots-game');
+    if (slotsGame) slotsGame.classList.add('hidden');
+    const pachinkoGame = document.getElementById('casino-pachinko-game');
+    if (pachinkoGame) pachinkoGame.classList.add('hidden');
+    const diceGame = document.getElementById('casino-dice-game');
+    if (diceGame) diceGame.classList.add('hidden');
+    
+    // Show roulette screen
+    const rouletteContainer = document.getElementById('casino-roulette-game');
+    if (rouletteContainer) {
+        rouletteContainer.classList.remove('hidden');
+        // Clear previous results
+        const resultDisplay = document.getElementById('roulette-result');
+        if (resultDisplay) resultDisplay.innerHTML = '';
+    }
+}
+
+async function spinRoulette() {
+    const betInput = document.getElementById('roulette-bet');
+    const betType = document.getElementById('roulette-bet-type').value;
+    const numberInput = document.getElementById('roulette-number');
+    const bet = parseInt(betInput.value);
+    
+    if (!bet || bet <= 0) {
+        addLogEntry('Please enter a valid bet amount', 'danger');
+        return;
+    }
+    
+    if (bet > gameState.player.gold) {
+        addLogEntry(`Not enough gold! You have ${gameState.player.gold}`, 'danger');
+        return;
+    }
+    
+    const requestData = {
+        session_id: gameState.sessionId,
+        bet: bet,
+        bet_type: betType
+    };
+    
+    if (betType === 'number') {
+        const number = parseInt(numberInput.value);
+        if (isNaN(number) || number < 0 || number > 36) {
+            addLogEntry('Please enter a number between 0-36', 'danger');
+            return;
+        }
+        requestData.number = number;
+    }
+    
+    // Disable button during spin
+    const spinBtn = document.getElementById('spin-roulette-btn');
+    if (spinBtn) spinBtn.disabled = true;
+    
+    // Show spinning animation
+    const resultDisplay = document.getElementById('roulette-result');
+    if (resultDisplay) {
+        resultDisplay.innerHTML = '<div class="roulette-wheel spinning">🎡 Spinning... 🎡</div>';
+    }
+    
+    // Wait for animation
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const result = await apiRequest('/casino/roulette/spin', 'POST', requestData);
+    
+    if (result.error) {
+        addLogEntry(`Roulette error: ${result.message}`, 'danger');
+        if (spinBtn) spinBtn.disabled = false;
+        if (resultDisplay) resultDisplay.innerHTML = '';
+        return;
+    }
+    
+    // Display result
+    const netGain = result.data.net_gain;
+    if (resultDisplay) {
+        const color = netGain > 0 ? 'success' : netGain < 0 ? 'danger' : 'info';
+        const colorEmoji = result.data.color === 'red' ? '❤️' : result.data.color === 'black' ? '🖤' : '💚';
+        resultDisplay.innerHTML = `
+            <div class="roulette-wheel">${colorEmoji} ${result.data.result} ${colorEmoji}</div>
+            <div class="${color}">${result.message}</div>
+            <div>Bet: ${result.data.bet} (${result.data.bet_type}) | Won: ${result.data.winnings}</div>
+            <div>Net: ${netGain >= 0 ? '+' : ''}${netGain}</div>
+        `;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = result.data.player_gold;
+    updatePlayerDisplay();
+    
+    addLogEntry(result.message, netGain > 0 ? 'success' : 'info');
+    
+    // Re-enable button
+    if (spinBtn) {
+        spinBtn.disabled = false;
+        console.log('Roulette spin button re-enabled');
+    }
+}
+
+function updateRouletteNumberInput() {
+    const betType = document.getElementById('roulette-bet-type').value;
+    const numberInput = document.getElementById('roulette-number');
+    const numberGroup = document.getElementById('roulette-number-group');
+    
+    if (betType === 'number') {
+        numberGroup.classList.remove('hidden');
+    } else {
+        numberGroup.classList.add('hidden');
+    }
+}
+
+// ============================================
+// PACHINKO GAME FUNCTIONS
+// ============================================
+
+function showPachinkoGame() {
+    // Hide all other screens
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) gameMenu.classList.add('hidden');
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    const slotsGame = document.getElementById('casino-slots-game');
+    if (slotsGame) slotsGame.classList.add('hidden');
+    const rouletteGame = document.getElementById('casino-roulette-game');
+    if (rouletteGame) rouletteGame.classList.add('hidden');
+    const diceGame = document.getElementById('casino-dice-game');
+    if (diceGame) diceGame.classList.add('hidden');
+    
+    // Show pachinko screen
+    const pachinkoContainer = document.getElementById('casino-pachinko-game');
+    if (pachinkoContainer) {
+        pachinkoContainer.classList.remove('hidden');
+        // Clear previous results
+        const resultDisplay = document.getElementById('pachinko-result');
+        if (resultDisplay) resultDisplay.innerHTML = '';
+    }
+}
+
+async function dropBalls() {
+    const ballsInput = document.getElementById('pachinko-balls');
+    const balls = parseInt(ballsInput.value);
+    
+    if (!balls || balls <= 0) {
+        addLogEntry('Please enter a valid number of balls', 'danger');
+        return;
+    }
+    
+    if (balls > 50) {
+        addLogEntry('Maximum 50 balls at once', 'danger');
+        return;
+    }
+    
+    if (balls > gameState.player.gold) {
+        addLogEntry(`Not enough gold! You have ${gameState.player.gold}`, 'danger');
+        return;
+    }
+    
+    // Disable button during play
+    const dropBtn = document.getElementById('drop-balls-btn');
+    if (dropBtn) dropBtn.disabled = true;
+    
+    // Add dropping animation
+    const pachinkoDisplay = document.getElementById('pachinko-display');
+    if (pachinkoDisplay) {
+        pachinkoDisplay.classList.add('dropping');
+        pachinkoDisplay.textContent = '🎪 Dropping balls... 🎪';
+    }
+    
+    // Wait for animation
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const result = await apiRequest('/casino/pachinko/play', 'POST', {
+        session_id: gameState.sessionId,
+        bet: balls
+    });
+    
+    if (result.error) {
+        addLogEntry(`Pachinko error: ${result.message}`, 'danger');
+        if (dropBtn) dropBtn.disabled = false;
+        if (pachinkoDisplay) {
+            pachinkoDisplay.classList.remove('dropping');
+            pachinkoDisplay.textContent = '💰 🎰 💎 ⭐ 🎪';
+        }
+        return;
+    }
+    
+    // Remove animation
+    if (pachinkoDisplay) {
+        pachinkoDisplay.classList.remove('dropping');
+        pachinkoDisplay.textContent = '💰 🎰 💎 ⭐ 🎪';
+    }
+    
+    // Display results
+    const resultDisplay = document.getElementById('pachinko-result');
+    const netGain = result.data.net_gain;
+    if (resultDisplay) {
+        const color = netGain > 0 ? 'success' : netGain < 0 ? 'danger' : 'info';
+        
+        // Count multipliers
+        const counts = {};
+        result.data.results.forEach(mult => {
+            counts[mult] = (counts[mult] || 0) + 1;
+        });
+        
+        const breakdown = Object.keys(counts).sort((a, b) => b - a).map(mult => 
+            `${mult}x: ${counts[mult]} balls`
+        ).join(', ');
+        
+        resultDisplay.innerHTML = `
+            <div class="${color}">${result.message}</div>
+            <div>Balls dropped: ${result.data.balls} | Won: ${result.data.winnings} gold</div>
+            <div>Net: ${netGain >= 0 ? '+' : ''}${netGain} gold</div>
+            <div style="font-size: 0.9em; margin-top: 5px;">${breakdown}</div>
+        `;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = result.data.player_gold;
+    updatePlayerDisplay();
+    
+    addLogEntry(result.message, netGain > 0 ? 'success' : 'info');
+    
+    // Re-enable button
+    if (dropBtn) {
+        dropBtn.disabled = false;
+        console.log('Pachinko drop button re-enabled');
+    }
+}
+
+// ============================================
+// DICE GAME FUNCTIONS
+// ============================================
+
+function showDiceGame() {
+    // Hide all other screens
+    const gameMenu = document.getElementById('casino-game-menu');
+    if (gameMenu) gameMenu.classList.add('hidden');
+    elements.casinoBetScreen.classList.add('hidden');
+    elements.casinoGameScreen.classList.add('hidden');
+    const slotsGame = document.getElementById('casino-slots-game');
+    if (slotsGame) slotsGame.classList.add('hidden');
+    const rouletteGame = document.getElementById('casino-roulette-game');
+    if (rouletteGame) rouletteGame.classList.add('hidden');
+    const pachinkoGame = document.getElementById('casino-pachinko-game');
+    if (pachinkoGame) pachinkoGame.classList.add('hidden');
+    
+    // Show dice screen
+    const diceContainer = document.getElementById('casino-dice-game');
+    if (diceContainer) {
+        diceContainer.classList.remove('hidden');
+        // Clear previous results
+        const resultDisplay = document.getElementById('dice-result');
+        if (resultDisplay) resultDisplay.innerHTML = '';
+    }
+}
+
+async function rollDiceGame() {
+    const betInput = document.getElementById('dice-bet');
+    const predictionType = document.getElementById('dice-prediction').value;
+    const numberInput = document.getElementById('dice-number');
+    const bet = parseInt(betInput.value);
+    
+    if (!bet || bet <= 0) {
+        addLogEntry('Please enter a valid bet amount', 'danger');
+        return;
+    }
+    
+    if (bet > gameState.player.gold) {
+        addLogEntry(`Not enough gold! You have ${gameState.player.gold}`, 'danger');
+        return;
+    }
+    
+    let prediction = predictionType;
+    if (predictionType === 'number') {
+        const number = parseInt(numberInput.value);
+        if (isNaN(number) || number < 2 || number > 12) {
+            addLogEntry('Please enter a number between 2-12', 'danger');
+            return;
+        }
+        prediction = number.toString();
+    }
+    
+    // Disable button during roll
+    const rollBtn = document.getElementById('roll-dice-btn');
+    if (rollBtn) rollBtn.disabled = true;
+    
+    // Add rolling animation
+    const diceDisplay = document.getElementById('dice-display');
+    if (diceDisplay) {
+        diceDisplay.classList.add('rolling');
+        diceDisplay.textContent = '🎲 Rolling... 🎲';
+    }
+    
+    // Wait for animation
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    const result = await apiRequest('/casino/dice/roll', 'POST', {
+        session_id: gameState.sessionId,
+        bet: bet,
+        prediction: prediction
+    });
+    
+    if (result.error) {
+        addLogEntry(`Dice error: ${result.message}`, 'danger');
+        if (rollBtn) rollBtn.disabled = false;
+        if (diceDisplay) {
+            diceDisplay.classList.remove('rolling');
+            diceDisplay.textContent = '🎲 ? + ? = ? 🎲';
+        }
+        return;
+    }
+    
+    // Update display with result
+    if (diceDisplay) {
+        diceDisplay.classList.remove('rolling');
+        diceDisplay.textContent = `🎲 ${result.data.die1} + ${result.data.die2} = ${result.data.total} 🎲`;
+    }
+    
+    // Display result
+    const resultDisplay = document.getElementById('dice-result');
+    const netGain = result.data.net_gain;
+    if (resultDisplay) {
+        const color = netGain > 0 ? 'success' : netGain < 0 ? 'danger' : 'info';
+        resultDisplay.innerHTML = `
+            <div class="${color}">${result.message}</div>
+            <div>Bet: ${result.data.bet} on ${result.data.prediction} | Won: ${result.data.winnings}</div>
+            <div>Net: ${netGain >= 0 ? '+' : ''}${netGain}</div>
+        `;
+    }
+    
+    // Update gold
+    gameState.player.gold = result.data.player_gold;
+    elements.casinoPlayerGold.textContent = result.data.player_gold;
+    updatePlayerDisplay();
+    
+    addLogEntry(result.message, netGain > 0 ? 'success' : 'info');
+    
+    // Re-enable button
+    if (rollBtn) {
+        rollBtn.disabled = false;
+        console.log('Dice roll button re-enabled');
+    }
+}
+
+function updateDiceNumberInput() {
+    const predictionType = document.getElementById('dice-prediction').value;
+    const numberInput = document.getElementById('dice-number');
+    const numberGroup = document.getElementById('dice-number-group');
+    
+    if (predictionType === 'number') {
+        numberGroup.classList.remove('hidden');
+    } else {
+        numberGroup.classList.add('hidden');
+    }
+}
+
 // ============================================
 // ANIMATION HELPER FUNCTIONS
 // ============================================
@@ -3365,3 +3976,302 @@ if (!document.getElementById('fade-out-style')) {
     document.head.appendChild(style);
 }
 
+// ============================================
+// GEAR EQUIPMENT SYSTEM
+// ============================================
+
+/**
+ * Open the gear equipment modal
+ */
+function openGearModal() {
+    const modal = document.getElementById('gear-modal');
+    if (!modal) return;
+    
+    updateGearDisplay();
+    modal.classList.add('active');
+}
+
+/**
+ * Update the gear display in the modal
+ */
+function updateGearDisplay() {
+    if (!gameState.player) return;
+    
+    // Update equipped gear slots
+    updateEquippedGearSlot('weapon', gameState.player.equipped_weapon);
+    updateEquippedGearSlot('armor', gameState.player.equipped_armor);
+    updateEquippedGearSlot('accessory', gameState.player.equipped_accessory);
+    
+    // Update gear inventory list
+    updateGearInventory();
+}
+
+/**
+ * Update a single equipped gear slot
+ */
+function updateEquippedGearSlot(slotType, gear) {
+    const slotContent = document.getElementById(`${slotType}-slot-content`);
+    const unequipBtn = document.getElementById(`unequip-${slotType}-btn`);
+    
+    if (!slotContent || !unequipBtn) return;
+    
+    if (gear) {
+        slotContent.innerHTML = createGearHTML(gear);
+        unequipBtn.style.display = 'block';
+    } else {
+        slotContent.innerHTML = `<p class="empty-slot">No ${slotType} equipped</p>`;
+        unequipBtn.style.display = 'none';
+    }
+}
+
+/**
+ * Create HTML for displaying gear info
+ */
+function createGearHTML(gear) {
+    const rarityClass = gear.rarity || 'common';
+    const elementEmoji = gear.element ? getElementEmoji(gear.element) : '';
+    const elementName = gear.element ? formatElementName(gear.element) : '';
+    
+    let statsHTML = '<div class="gear-stats">';
+    
+    if (gear.attack_bonus && gear.attack_bonus > 0) {
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">⚔️ Attack:</span><span class="gear-stat-value">+${gear.attack_bonus}</span></div>`;
+    }
+    if (gear.defense_bonus && gear.defense_bonus > 0) {
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">🛡️ Defense:</span><span class="gear-stat-value">+${gear.defense_bonus}</span></div>`;
+    }
+    if (gear.speed_bonus) {
+        const speedSign = gear.speed_bonus > 0 ? '+' : '';
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">⚡ Speed:</span><span class="gear-stat-value">${speedSign}${gear.speed_bonus}</span></div>`;
+    }
+    
+    if (gear.element) {
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">🌟 Element:</span><span class="gear-stat-value">${elementEmoji} ${elementName}</span></div>`;
+    }
+    
+    if (gear.ailment && gear.ailment_chance) {
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">💀 Ailment:</span><span class="gear-stat-value">${gear.ailment} (${Math.round(gear.ailment_chance * 100)}%)</span></div>`;
+    }
+    
+    if (gear.weight) {
+        statsHTML += `<div class="gear-stat"><span class="gear-stat-label">⚖️ Weight:</span><span class="gear-stat-value">${gear.weight}</span></div>`;
+    }
+    
+    statsHTML += '</div>';
+    
+    return `
+        <div class="gear-info">
+            <div class="gear-name">
+                <span>${gear.name}</span>
+                <span class="gear-rarity ${rarityClass}">${rarityClass}</span>
+            </div>
+            ${statsHTML}
+        </div>
+    `;
+}
+
+/**
+ * Update the gear inventory list
+ */
+function updateGearInventory() {
+    const inventoryList = document.getElementById('gear-inventory-list');
+    if (!inventoryList) return;
+    
+    // Filter inventory for gear items (items with gear_type property)
+    const gearItems = gameState.player.inventory.filter(item => item.gear_type);
+    
+    if (gearItems.length === 0) {
+        inventoryList.innerHTML = '<p class="empty-state">No gear in inventory</p>';
+        return;
+    }
+    
+    inventoryList.innerHTML = gearItems.map(gear => {
+        // Create a unique ID for this gear item button
+        const gearBtnId = `equip-gear-${gear.name.replace(/\s+/g, '-').toLowerCase()}`;
+        
+        return `
+            <div class="gear-inventory-item">
+                <div class="gear-header">
+                    ${createGearHTML(gear)}
+                </div>
+                <div class="gear-actions">
+                    <button class="btn btn-primary" id="${gearBtnId}" data-gear-name="${gear.name}">Equip</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    // Add event listeners to all equip buttons
+    gearItems.forEach(gear => {
+        const gearBtnId = `equip-gear-${gear.name.replace(/\s+/g, '-').toLowerCase()}`;
+        const btn = document.getElementById(gearBtnId);
+        if (btn) {
+            btn.addEventListener('click', () => equipGearFromInventory(gear.name));
+        }
+    });
+}
+
+/**
+ * Equip gear from inventory
+ */
+async function equipGearFromInventory(gearName) {
+    console.log('Attempting to equip gear:', gearName);
+    
+    try {
+        const response = await fetch('/api/equip_gear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: gameState.sessionId,
+                gear_name: gearName
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Equip gear response:', data);
+        
+        if (!data.error) {
+            // Update game state
+            gameState.player = data.data.player;
+            
+            // Update displays
+            updatePlayerDisplay();
+            updateGearDisplay();
+            updateInventoryDisplay();
+            
+            addLogEntry(data.message || 'Gear equipped successfully!', 'success');
+        } else {
+            console.error('Failed to equip gear:', data.message);
+            addLogEntry(data.message || 'Failed to equip gear', 'error');
+        }
+    } catch (error) {
+        console.error('Error equipping gear:', error);
+        addLogEntry('Error equipping gear', 'error');
+    }
+}
+
+/**
+ * Unequip gear
+ */
+async function unequipGear(slotType) {
+    console.log('Attempting to unequip gear:', slotType);
+    
+    try {
+        const response = await fetch('/api/unequip_gear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: gameState.sessionId,
+                gear_type: slotType
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Unequip gear response:', data);
+        
+        if (!data.error) {
+            // Update game state
+            gameState.player = data.data.player;
+            
+            // Update displays
+            updatePlayerDisplay();
+            updateGearDisplay();
+            updateInventoryDisplay();
+            
+            addLogEntry(data.message || 'Gear unequipped successfully!', 'success');
+        } else {
+            addLogEntry(data.message || 'Failed to unequip gear', 'error');
+        }
+    } catch (error) {
+        console.error('Error unequipping gear:', error);
+        addLogEntry('Error unequipping gear', 'error');
+    }
+}
+
+// ============================================
+// SETTINGS FUNCTIONS
+// ============================================
+
+function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    if (panel) {
+        panel.classList.toggle('hidden');
+    }
+}
+
+function toggleParticles() {
+    const particles = document.querySelector('.particles');
+    const checkbox = document.getElementById('toggle-particles');
+    
+    if (particles && checkbox) {
+        if (checkbox.checked) {
+            particles.classList.remove('disabled');
+            localStorage.setItem('particles-enabled', 'true');
+        } else {
+            particles.classList.add('disabled');
+            localStorage.setItem('particles-enabled', 'false');
+        }
+    }
+}
+
+function toggleAnimations() {
+    const checkbox = document.getElementById('toggle-animations');
+    
+    if (checkbox) {
+        if (checkbox.checked) {
+            document.body.classList.remove('no-animations');
+            localStorage.setItem('animations-enabled', 'true');
+        } else {
+            document.body.classList.add('no-animations');
+            localStorage.setItem('animations-enabled', 'false');
+        }
+    }
+}
+
+function toggleBackgroundPattern() {
+    const checkbox = document.getElementById('toggle-background-pattern');
+    
+    if (checkbox) {
+        if (checkbox.checked) {
+            document.body.classList.remove('no-background-pattern');
+            localStorage.setItem('background-pattern-enabled', 'true');
+        } else {
+            document.body.classList.add('no-background-pattern');
+            localStorage.setItem('background-pattern-enabled', 'false');
+        }
+    }
+}
+
+// Load settings from localStorage on page load
+function loadSettings() {
+    const particlesEnabled = localStorage.getItem('particles-enabled');
+    const animationsEnabled = localStorage.getItem('animations-enabled');
+    const backgroundPatternEnabled = localStorage.getItem('background-pattern-enabled');
+    
+    // Apply particles setting
+    if (particlesEnabled === 'false') {
+        const particles = document.querySelector('.particles');
+        const checkbox = document.getElementById('toggle-particles');
+        if (particles) particles.classList.add('disabled');
+        if (checkbox) checkbox.checked = false;
+    }
+    
+    // Apply animations setting
+    if (animationsEnabled === 'false') {
+        document.body.classList.add('no-animations');
+        const checkbox = document.getElementById('toggle-animations');
+        if (checkbox) checkbox.checked = false;
+    }
+    
+    // Apply background pattern setting
+    if (backgroundPatternEnabled === 'false') {
+        document.body.classList.add('no-background-pattern');
+        const checkbox = document.getElementById('toggle-background-pattern');
+        if (checkbox) checkbox.checked = false;
+    }
+}
+
+// Load settings when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadSettings();
+});

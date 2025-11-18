@@ -512,3 +512,215 @@ def get_player_info():
         
     except Exception as e:
         return jsonify(create_error_response(f"Error getting player info: {str(e)}")), 500
+
+
+@dev_bp.route('/dev/add-item', methods=['POST'])
+def add_item():
+    """Add items to player inventory."""
+    if not verify_dev_key():
+        return jsonify(create_error_response("Access Denied")), 403
+    
+    try:
+        from .models.item import Item
+        
+        data = request.json
+        session_id = data.get('session_id')
+        item_type = data.get('item_type')
+        quantity = data.get('quantity', 1)
+        
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return jsonify(create_error_response("Player not found")), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Add items to inventory
+        for _ in range(quantity):
+            item = Item(item_type)
+            player.inventory.append(item)
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        return jsonify(create_success_response({
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+            },
+            'inventory_count': len(player.inventory)
+        }, f"Added {quantity}x {item_type} to inventory"))
+        
+    except Exception as e:
+        return jsonify(create_error_response(f"Error adding item: {str(e)}")), 500
+
+
+@dev_bp.route('/dev/add-gear', methods=['POST'])
+def add_gear():
+    """Add gear to player inventory."""
+    if not verify_dev_key():
+        return jsonify(create_error_response("Access Denied")), 403
+    
+    try:
+        from .models.gear import Gear
+        
+        data = request.json
+        session_id = data.get('session_id')
+        gear_type = data.get('gear_type')
+        floor = data.get('floor', 1)
+        quantity = data.get('quantity', 1)
+        
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return jsonify(create_error_response("Player not found")), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Add gear to inventory
+        for _ in range(quantity):
+            if gear_type == 'random':
+                gear = Gear.generate_random_gear(floor)
+            elif gear_type == 'weapon':
+                gear = Gear.generate_weapon(floor)
+            elif gear_type == 'armor':
+                gear = Gear.generate_armor(floor)
+            elif gear_type == 'accessory':
+                gear = Gear.generate_accessory(floor)
+            else:
+                return jsonify(create_error_response(f"Invalid gear type: {gear_type}")), 400
+            
+            player.inventory.append(gear)
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        return jsonify(create_success_response({
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'inventory': [item.get_item_info() if hasattr(item, 'get_item_info') else item for item in player.inventory],
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+            },
+            'inventory_count': len(player.inventory)
+        }, f"Added {quantity}x {gear_type} (floor {floor}) to inventory"))
+        
+    except Exception as e:
+        return jsonify(create_error_response(f"Error adding gear: {str(e)}")), 500
+
+
+@dev_bp.route('/dev/clear-inventory', methods=['POST'])
+def clear_inventory():
+    """Clear all items from player inventory."""
+    if not verify_dev_key():
+        return jsonify(create_error_response("Access Denied")), 403
+    
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return jsonify(create_error_response("Player not found")), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Clear inventory
+        old_count = len(player.inventory)
+        player.inventory = []
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        return jsonify(create_success_response({
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'inventory': [],
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+            },
+            'items_removed': old_count
+        }, f"Cleared {old_count} items from inventory"))
+        
+    except Exception as e:
+        return jsonify(create_error_response(f"Error clearing inventory: {str(e)}")), 500
+
+
+@dev_bp.route('/dev/spawn-casino', methods=['POST'])
+def spawn_casino():
+    """Convert current room to a casino."""
+    if not verify_dev_key():
+        return jsonify(create_error_response("Access Denied")), 403
+    
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        
+        if not player_data:
+            return jsonify(create_error_response("Player not found")), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Get current room from movement controller
+        from .controllers import MovementController
+        from .utils import RoomDB
+        
+        room_db = RoomDB(current_app.config['DATA_DIR'])
+        movement_controller = MovementController(room_db)
+        movement_controller.set_session(session_id)
+        
+        current_room = movement_controller.get_room(player.room_id, player.floor)
+        
+        if not current_room:
+            return jsonify(create_error_response("Current room not found")), 404
+        
+        print(f"DEBUG spawn_casino: Converting room {player.room_id} on floor {player.floor} to casino")
+        
+        # Convert room to casino
+        current_room.set_casino()
+        current_room.name = "The Lucky Dice Casino"
+        current_room.description = "A glittering casino run by mysterious figures. The sound of shuffling cards and rolling dice fills the air."
+        
+        print(f"DEBUG spawn_casino: Room is_casino={current_room.is_casino}, saving to DB...")
+        
+        # Save the room using the movement controller's _save_room method
+        # This ensures it's saved in the correct format and location
+        success = movement_controller._save_room(current_room)
+        
+        if success:
+            print(f"DEBUG spawn_casino: Room saved successfully via movement controller")
+        else:
+            print(f"DEBUG spawn_casino: Failed to save room via movement controller")
+        
+        # Get room dict and use it for room_info
+        room_dict = current_room.to_dict()
+        
+        return jsonify(create_success_response({
+            'room': room_dict,
+            'room_info': room_dict,
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'floor': player.floor,
+                'room_id': player.room_id
+            }
+        }, "Current room converted to casino!"))
+        
+    except Exception as e:
+        return jsonify(create_error_response(f"Error spawning casino: {str(e)}")), 500
+
+

@@ -5,6 +5,7 @@ REST API routes for the dungeon crawler game.
 from flask import Blueprint, request, jsonify, current_app, session, send_from_directory
 from typing import Dict, Any, Optional
 import uuid
+import random
 from pathlib import Path
 
 from .models import Player, Enemy, Ally, Room, Item
@@ -115,11 +116,16 @@ def create_player():
                 'attack_power': player.attack_power,
                 'defense': player.defense,
                 'speed': player.speed,
-                'element': player.element,
+                'attack_element': player.attack_element,
+                'defense_element': player.defense_element,
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
                 'allies_count': len(player.allies),
-                'inventory': [item.get_item_info() for item in player.inventory]
+                'inventory': [item.get_item_info() for item in player.inventory],
+                'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
+                'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
+                'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
+                'total_stats': player.get_total_stats()
             },
             'current_room': start_room.get_room_info()
         }
@@ -801,7 +807,8 @@ def load_player():
                 'attack_power': player.attack_power,
                 'defense': player.defense,
                 'speed': player.speed,
-                'element': player.element,
+                'attack_element': player.attack_element,
+                'defense_element': player.defense_element,
                 'max_health': player.max_health,
                 'visited_rooms': list(player.visited_rooms),
                 'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
@@ -813,6 +820,10 @@ def load_player():
                 'ally_used': player.ally_used if hasattr(player, 'ally_used') else False,
                 'battle_room': player.battle_room if hasattr(player, 'battle_room') else None,
                 'room_positions': player.room_positions if hasattr(player, 'room_positions') else {},
+                'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
+                'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
+                'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
+                'total_stats': player.get_total_stats(),
                 'room_info': player.room_info if hasattr(player, 'room_info') else {}
             },
             'current_room': current_room.get_room_info()
@@ -1212,21 +1223,36 @@ def enter_casino():
         
         player = Player.from_dict(player_data)
         
-        # Get current room
+        print(f"DEBUG: Looking for room - floor: {player.floor}, room_id: {player.room_id}")
+        
+        # Get the room from the movement controller (primary source)
         controllers = get_controllers()
         controllers['movement'].set_session(session_id)
         current_room = controllers['movement'].get_room(player.room_id, player.floor)
         
         if not current_room:
-            return create_error_response("Current room not found"), 404
+            print(f"DEBUG: Room not found in movement controller")
+            return create_error_response(f"Current room not found (floor: {player.floor}, room: {player.room_id})"), 404
+        
+        print(f"DEBUG: Found room - is_casino: {current_room.is_casino}")
         
         if not current_room.is_casino:
             return create_error_response("Current room is not a casino"), 400
         
+        # Available casino games
+        games = [
+            {"id": "blackjack", "name": "♠️ Blackjack", "description": "Classic card game - beat the dealer!"},
+            {"id": "slots", "name": "🎰 Slot Machine", "description": "Spin to win! Match 3 symbols for big payouts!"},
+            {"id": "roulette", "name": "🎡 Roulette", "description": "Bet on red, black, odd, even, or a specific number!"},
+            {"id": "pachinko", "name": "🎪 Pachinko", "description": "Drop balls through pegs for random rewards!"},
+            {"id": "dice", "name": "🎲 Dice Game", "description": "Predict the roll of two dice for big payouts!"}
+        ]
+        
         return create_success_response({
             "player_gold": player.gold,
             "casino_name": current_room.name,
-            "casino_description": current_room.description
+            "casino_description": current_room.description,
+            "games": games
         }, "Welcome to the casino!")
         
     except Exception as e:
@@ -1531,6 +1557,370 @@ def blackjack_double():
         return create_error_response(f"Error doubling down in blackjack: {str(e)}"), 500
 
 
+@bp.route('/casino/slots/spin', methods=['POST'])
+def play_slots():
+    """
+    Play the slot machine.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "bet": bet_amount
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'bet' not in data:
+            return create_error_response("Missing session_id or bet"), 400
+        
+        session_id = data['session_id']
+        bet = int(data['bet'])
+        
+        if bet <= 0:
+            return create_error_response("Bet must be positive"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if player_data['gold'] < bet:
+            return create_error_response("Not enough gold"), 400
+        
+        # Deduct bet
+        player_data['gold'] -= bet
+        
+        # Slot symbols with different rarities
+        symbols = ['💰', '💰', '💰', '💎', '💎', '⭐', '⭐', '🎰', '7️⃣']
+        reels = [random.choice(symbols) for _ in range(3)]
+        
+        # Calculate winnings
+        winnings = 0
+        message = ""
+        
+        if reels[0] == reels[1] == reels[2]:
+            # Three of a kind
+            if reels[0] == '7️⃣':
+                winnings = bet * 10
+                message = "🎉 JACKPOT! Triple 7s!"
+            elif reels[0] == '💎':
+                winnings = bet * 7
+                message = "💎 Triple Diamonds!"
+            elif reels[0] == '⭐':
+                winnings = bet * 5
+                message = "⭐ Triple Stars!"
+            elif reels[0] == '🎰':
+                winnings = bet * 4
+                message = "🎰 Triple Slots!"
+            elif reels[0] == '💰':
+                winnings = bet * 3
+                message = "💰 Triple Gold!"
+        elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
+            # Two of a kind
+            winnings = bet
+            message = "Pair! Bet returned"
+        else:
+            message = "No match. Better luck next time!"
+        
+        player_data['gold'] += winnings
+        net_gain = winnings - bet
+        
+        user_db.save_user(session_id, player_data)
+        
+        return create_success_response({
+            "reels": reels,
+            "bet": bet,
+            "winnings": winnings,
+            "net_gain": net_gain,
+            "player_gold": player_data['gold']
+        }, message)
+        
+    except Exception as e:
+        return create_error_response(f"Error playing slots: {str(e)}"), 500
+
+
+@bp.route('/casino/roulette/spin', methods=['POST'])
+def play_roulette():
+    """
+    Play roulette.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "bet": bet_amount,
+        "bet_type": "red|black|odd|even|number",
+        "number": number (0-36, only if bet_type is "number")
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'bet' not in data or 'bet_type' not in data:
+            return create_error_response("Missing required fields"), 400
+        
+        session_id = data['session_id']
+        bet = int(data['bet'])
+        bet_type = data['bet_type']
+        number = data.get('number')
+        
+        if bet <= 0:
+            return create_error_response("Bet must be positive"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if player_data['gold'] < bet:
+            return create_error_response("Not enough gold"), 400
+        
+        # Deduct bet
+        player_data['gold'] -= bet
+        
+        # Spin the wheel (0-36)
+        result = random.randint(0, 36)
+        
+        # Determine color (0 is green, red: 1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36)
+        red_numbers = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+        if result == 0:
+            color = 'green'
+        elif result in red_numbers:
+            color = 'red'
+        else:
+            color = 'black'
+        
+        # Calculate winnings
+        winnings = 0
+        message = f"Spin result: {result} ({color})"
+        
+        if bet_type == 'number' and number is not None and int(number) == result:
+            winnings = bet * 35
+            message += " 🎉 Number hit! 35:1 payout!"
+        elif bet_type == 'red' and color == 'red':
+            winnings = bet * 2
+            message += " ❤️ Red wins!"
+        elif bet_type == 'black' and color == 'black':
+            winnings = bet * 2
+            message += " 🖤 Black wins!"
+        elif bet_type == 'odd' and result > 0 and result % 2 == 1:
+            winnings = bet * 2
+            message += " Odd wins!"
+        elif bet_type == 'even' and result > 0 and result % 2 == 0:
+            winnings = bet * 2
+            message += " Even wins!"
+        elif result == 0:
+            message += " 💚 House wins!"
+        else:
+            message += " Better luck next time!"
+        
+        player_data['gold'] += winnings
+        net_gain = winnings - bet
+        
+        user_db.save_user(session_id, player_data)
+        
+        return create_success_response({
+            "result": result,
+            "color": color,
+            "bet": bet,
+            "bet_type": bet_type,
+            "winnings": winnings,
+            "net_gain": net_gain,
+            "player_gold": player_data['gold']
+        }, message)
+        
+    except Exception as e:
+        return create_error_response(f"Error playing roulette: {str(e)}"), 500
+
+
+@bp.route('/casino/pachinko/play', methods=['POST'])
+def play_pachinko():
+    """
+    Play pachinko - drop balls and watch them fall through pegs.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "bet": 10  // Number of balls to drop (1-50)
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'bet' not in data:
+            return create_error_response("Missing session_id or bet"), 400
+        
+        session_id = data['session_id']
+        balls = int(data['bet'])
+        
+        if balls < 1 or balls > 50:
+            return create_error_response("Must drop between 1-50 balls"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if player_data['gold'] < balls:
+            return create_error_response("Not enough gold"), 400
+        
+        # Deduct bet
+        player_data['gold'] -= balls
+        
+        # Pachinko mechanics: each ball has a chance to land in different slots
+        # Slots have different multipliers: 0x (50%), 1x (25%), 2x (15%), 3x (7%), 5x (2.5%), 10x (0.5%)
+        winnings = 0
+        results = []
+        
+        for _ in range(balls):
+            chance = random.random()
+            if chance < 0.50:
+                multiplier = 0
+            elif chance < 0.75:
+                multiplier = 1
+            elif chance < 0.90:
+                multiplier = 2
+            elif chance < 0.97:
+                multiplier = 3
+            elif chance < 0.995:
+                multiplier = 5
+            else:
+                multiplier = 10
+            
+            winnings += multiplier
+            results.append(multiplier)
+        
+        # Add winnings
+        player_data['gold'] += winnings
+        net_gain = winnings - balls
+        
+        # Save player
+        user_db.save_user(session_id, player_data)
+        
+        # Generate message
+        if net_gain > balls:
+            message = f"🎉 Amazing! You won {winnings} gold from {balls} balls!"
+        elif net_gain > 0:
+            message = f"Nice! You won {winnings} gold from {balls} balls!"
+        elif net_gain == 0:
+            message = f"Break even! You got {winnings} gold back."
+        else:
+            message = f"Better luck next time! You won {winnings} gold from {balls} balls."
+        
+        return create_success_response({
+            "balls": balls,
+            "results": results,
+            "winnings": winnings,
+            "net_gain": net_gain,
+            "player_gold": player_data['gold']
+        }, message)
+        
+    except Exception as e:
+        return create_error_response(f"Error playing pachinko: {str(e)}"), 500
+
+
+@bp.route('/casino/dice/roll', methods=['POST'])
+def roll_dice():
+    """
+    Roll dice game - bet on the total of two dice.
+    
+    Expected JSON:
+    {
+        "session_id": "player-session-id",
+        "bet": 10,
+        "prediction": "high"  // "high" (8-12), "low" (2-6), "seven" (7), or a specific number (2-12)
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'bet' not in data or 'prediction' not in data:
+            return create_error_response("Missing session_id, bet, or prediction"), 400
+        
+        session_id = data['session_id']
+        bet = int(data['bet'])
+        prediction = data['prediction']
+        
+        if bet <= 0:
+            return create_error_response("Bet must be positive"), 400
+        
+        # Get player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player session not found"), 404
+        
+        if player_data['gold'] < bet:
+            return create_error_response("Not enough gold"), 400
+        
+        # Deduct bet
+        player_data['gold'] -= bet
+        
+        # Roll two dice
+        die1 = random.randint(1, 6)
+        die2 = random.randint(1, 6)
+        total = die1 + die2
+        
+        # Check win conditions and payouts
+        won = False
+        multiplier = 0
+        
+        if prediction == "high" and total >= 8 and total <= 12:
+            won = True
+            multiplier = 2  # 2x payout
+        elif prediction == "low" and total >= 2 and total <= 6:
+            won = True
+            multiplier = 2  # 2x payout
+        elif prediction == "seven" and total == 7:
+            won = True
+            multiplier = 4  # 4x payout
+        elif prediction.isdigit() and int(prediction) == total:
+            won = True
+            # Specific number predictions have different payouts based on probability
+            if total in [2, 12]:
+                multiplier = 30  # 1/36 chance
+            elif total in [3, 11]:
+                multiplier = 15  # 2/36 chance
+            elif total in [4, 10]:
+                multiplier = 10  # 3/36 chance
+            elif total in [5, 9]:
+                multiplier = 7  # 4/36 chance
+            elif total in [6, 8]:
+                multiplier = 5  # 5/36 chance
+            elif total == 7:
+                multiplier = 4  # 6/36 chance
+        
+        winnings = bet * multiplier if won else 0
+        player_data['gold'] += winnings
+        net_gain = winnings - bet
+        
+        # Save player
+        user_db.save_user(session_id, player_data)
+        
+        # Generate message
+        if won:
+            if multiplier >= 10:
+                message = f"🎲 JACKPOT! Rolled {total} ({die1} + {die2})! Won {winnings} gold!"
+            else:
+                message = f"🎲 Winner! Rolled {total} ({die1} + {die2})! Won {winnings} gold!"
+        else:
+            message = f"🎲 Rolled {total} ({die1} + {die2}). Better luck next time!"
+        
+        return create_success_response({
+            "die1": die1,
+            "die2": die2,
+            "total": total,
+            "prediction": prediction,
+            "won": won,
+            "bet": bet,
+            "winnings": winnings,
+            "net_gain": net_gain,
+            "player_gold": player_data['gold']
+        }, message)
+        
+    except Exception as e:
+        return create_error_response(f"Error rolling dice: {str(e)}"), 500
+
+
 # Health check for individual components
 @bp.route('/debug/room', methods=['POST'])
 def debug_room_info():
@@ -1579,6 +1969,155 @@ def debug_room_info():
         
     except Exception as e:
         return create_error_response(f"Error getting debug info: {str(e)}"), 500
+
+
+@bp.route('/equip_gear', methods=['POST'])
+def equip_gear():
+    """
+    Equip a gear item from inventory.
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        gear_name = data.get('gear_name')
+        
+        if not session_id or not gear_name:
+            return create_error_response("Session ID and gear name are required"), 400
+        
+        # Load player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Find the gear in inventory
+        gear_item = None
+        for item in player.inventory:
+            # Check if this is a gear item (has gear_type attribute or is a dict with gear_type)
+            is_gear = False
+            item_name = None
+            
+            if hasattr(item, 'gear_type'):
+                # Item is a Gear object
+                is_gear = True
+                item_name = item.name
+            elif isinstance(item, dict) and 'gear_type' in item:
+                # Item is a dictionary representation of gear
+                is_gear = True
+                item_name = item.get('name')
+            
+            if is_gear and item_name == gear_name:
+                gear_item = item
+                break
+        
+        if not gear_item:
+            return create_error_response("Gear not found in inventory"), 404
+        
+        # Equip the gear
+        old_gear = player.equip_gear(gear_item)
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        # Get gear name safely (handle both dict and object)
+        equipped_name = gear_item.get('name') if isinstance(gear_item, dict) else gear_item.name
+        message = f"Equipped {equipped_name}"
+        if old_gear:
+            old_gear_name = old_gear.get('name') if isinstance(old_gear, dict) else old_gear.name
+            message += f" (unequipped {old_gear_name})"
+        
+        return create_success_response({
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'floor': player.floor,
+                'room_id': player.room_id,
+                'level': player.level,
+                'attack_power': player.attack_power,
+                'defense': player.defense,
+                'speed': player.speed,
+                'attack_element': player.attack_element,
+                'defense_element': player.defense_element,
+                'max_health': player.max_health,
+                'visited_rooms': list(player.visited_rooms),
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                'allies_count': len(player.allies),
+                'inventory': [item.get_item_info() for item in player.inventory],
+                'is_alive': player.is_alive(),
+                'in_battle': player.in_battle,
+                'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
+                'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
+                'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
+                'total_stats': player.get_total_stats()
+            }
+        }, message)
+        
+    except Exception as e:
+        return create_error_response(f"Error equipping gear: {str(e)}"), 500
+
+
+@bp.route('/unequip_gear', methods=['POST'])
+def unequip_gear():
+    """
+    Unequip a gear item.
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        gear_type = data.get('gear_type')
+        
+        if not session_id or not gear_type:
+            return create_error_response("Session ID and gear type are required"), 400
+        
+        # Load player
+        user_db = get_user_db()
+        player_data = user_db.get_user(session_id)
+        if not player_data:
+            return create_error_response("Player not found"), 404
+        
+        player = Player.from_dict(player_data)
+        
+        # Unequip the gear
+        unequipped_gear = player.unequip_gear(gear_type)
+        
+        if not unequipped_gear:
+            return create_error_response(f"No {gear_type} equipped"), 400
+        
+        # Save player
+        user_db.save_user(session_id, player.to_dict())
+        
+        return create_success_response({
+            'player': {
+                'name': player.name,
+                'health': f"{player.health}/{player.max_health}",
+                'gold': player.gold,
+                'floor': player.floor,
+                'room_id': player.room_id,
+                'level': player.level,
+                'attack_power': player.attack_power,
+                'defense': player.defense,
+                'speed': player.speed,
+                'attack_element': player.attack_element,
+                'defense_element': player.defense_element,
+                'max_health': player.max_health,
+                'visited_rooms': list(player.visited_rooms),
+                'allies': [ally.to_dict() if hasattr(ally, 'to_dict') else ally for ally in player.allies],
+                'allies_count': len(player.allies),
+                'inventory': [item.get_item_info() for item in player.inventory],
+                'is_alive': player.is_alive(),
+                'in_battle': player.in_battle,
+                'equipped_weapon': player.equipped_weapon.to_dict() if player.equipped_weapon else None,
+                'equipped_armor': player.equipped_armor.to_dict() if player.equipped_armor else None,
+                'equipped_accessory': player.equipped_accessory.to_dict() if player.equipped_accessory else None,
+                'total_stats': player.get_total_stats()
+            }
+        }, f"Unequipped {unequipped_gear.name}")
+        
+    except Exception as e:
+        return create_error_response(f"Error unequipping gear: {str(e)}"), 500
 
 
 @bp.route('/health/detailed', methods=['GET'])

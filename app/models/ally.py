@@ -36,7 +36,7 @@ class Ally:
     Allies persist between battles until used.
     """
     
-    def __init__(self, name: str = "", ally_type: str = "attacker", value: int = 0, description: str = "", floor: int = 1, sprite: str = "", max_uses: int = None):
+    def __init__(self, name: str = "", ally_type: str = "attacker", value: int = 0, description: str = "", floor: int = 1, sprite: str = "", max_uses: int = None, element: str = None):
         self.name = name or "Mysterious Helper"
         self.ally_type = ally_type  # 'healer', 'attacker', 'skipper', 'caster_poison', or 'caster_paralysis'
         self.value = value  # Healing amount, damage amount, ailment severity, or 0 for skipper
@@ -47,8 +47,10 @@ class Ally:
         self.max_uses = max_uses if max_uses is not None else 3  # Default to 3 if not specified
         self.uses_remaining = self.max_uses  # Start with full uses
         
-        # Assign random element to damage-dealing allies (attackers and casters)
-        if ally_type in ["attacker", "caster_poison", "caster_paralysis"]:
+        # Assign element: use provided element, or random for damage-dealing allies
+        if element is not None:
+            self.element = element
+        elif ally_type in ["attacker", "caster_poison", "caster_paralysis"]:
             elements = ["accounting", "it", "marketing", "hr", "sales", "legal", "management", "intern"]
             self.element = random.choice(elements)
         else:
@@ -212,15 +214,26 @@ class Ally:
         """
         ally_template = random.choice(PREDEFINED_ALLIES)
         
-        return cls(
+        ally = cls(
             name=ally_template["name"],
             ally_type=ally_template["type"],
             value=ally_template["value"],
             description=ally_template["description"],
             floor=floor,
             sprite=ally_template.get("sprite", "ally_warrior_human_male.png"),
-            max_uses=ally_template.get("max_uses", 3)
+            max_uses=ally_template.get("max_uses", 3),
+            element=ally_template.get("element")  # Pass element from template
         )
+        
+        # Set ailment properties from template
+        ally.heal_ailments = ally_template.get("heal_ailments", [])
+        ally.heal_ailment_chance = ally_template.get("heal_ailment_chance")
+        ally.heal_ailment_severity = ally_template.get("heal_ailment_severity")
+        ally.inflict_ailments = ally_template.get("inflict_ailments", [])
+        ally.inflict_ailment_chance = ally_template.get("inflict_ailment_chance")
+        ally.inflict_ailment_severity = ally_template.get("inflict_ailment_severity")
+        
+        return ally
     
     @classmethod
     def create_specific_ally(cls, name: str, floor: int = 1) -> Optional['Ally']:
@@ -236,15 +249,26 @@ class Ally:
         """
         for ally_template in PREDEFINED_ALLIES:
             if ally_template["name"].lower() == name.lower():
-                return cls(
+                ally = cls(
                     name=ally_template["name"],
                     ally_type=ally_template["type"],
                     value=ally_template["value"],
                     description=ally_template["description"],
                     floor=floor,
                     sprite=ally_template.get("sprite", "ally_warrior_human_male.png"),
-                    max_uses=ally_template.get("max_uses", 3)
+                    max_uses=ally_template.get("max_uses", 3),
+                    element=ally_template.get("element")  # Pass element from template
                 )
+                
+                # Set ailment properties from template
+                ally.heal_ailments = ally_template.get("heal_ailments", [])
+                ally.heal_ailment_chance = ally_template.get("heal_ailment_chance")
+                ally.heal_ailment_severity = ally_template.get("heal_ailment_severity")
+                ally.inflict_ailments = ally_template.get("inflict_ailments", [])
+                ally.inflict_ailment_chance = ally_template.get("inflict_ailment_chance")
+                ally.inflict_ailment_severity = ally_template.get("inflict_ailment_severity")
+                
+                return ally
         return None
     
     def get_ally_info(self) -> dict:

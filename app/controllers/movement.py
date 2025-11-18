@@ -426,9 +426,9 @@ class MovementController:
                 shop_generated = True
                 print(f"DEBUG: Shop generated in room {shop_room_id} on floor {floor}")
         
-        # Randomly generate a casino on this floor (40% chance)
+        # Randomly generate a casino on this floor (10% chance)
         casino_generated = False
-        if random.random() < 0.4:
+        if random.random() < 0.1:
             # Place casino in a non-start, non-shop room
             available_rooms = [rid for rid in room_ids if rid != "start" and not rooms[rid].is_shop]
             if len(available_rooms) > 1:  # Need at least 2 rooms to avoid conflicts
